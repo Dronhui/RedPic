@@ -2,16 +2,16 @@ package org.example.redpic.controller;
 
 import org.example.redpic.common.Result;
 import org.example.redpic.dto.ChatRequest;
-import org.springframework.ai.chat.client.ChatClient;
+import org.example.redpic.service.ChatService;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 @RestController
 public class ChatController {
 
-    private final ChatClient chatClient;
+    private final ChatService chatService;
 
-    public ChatController(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.build();
+    public ChatController(ChatService chatService) {
+        this.chatService = chatService;
     }
 
     @PostMapping("/api/v1/chat")
@@ -20,10 +20,7 @@ public class ChatController {
         @RequestBody
         ChatRequest request
     ){
-        String answer = chatClient.prompt()
-                .user(request.message())
-                .call()
-                .content();
+        String answer = chatService.chat(request.message());
         return Result.success(answer);
     }
 }
