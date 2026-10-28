@@ -1,6 +1,7 @@
 package org.example.redpic.controller;
 
 import org.example.redpic.common.Result;
+import org.example.redpic.dto.ChatReply;
 import org.example.redpic.dto.ChatRequest;
 import org.example.redpic.service.ChatService;
 import org.springframework.web.bind.annotation.*;
@@ -15,12 +16,11 @@ public class ChatController {
     }
 
     @PostMapping("/api/v1/chat")
-    public Result<String> chat(
+    public Result<ChatReply> chat(
         @Valid
         @RequestBody
         ChatRequest request
     ){
-        String answer = chatService.chat(request.message());
-        return Result.success(answer);
+        return Result.success(chatService.chat(request));
     }
 }

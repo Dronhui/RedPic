@@ -1,5 +1,8 @@
 package org.example.redpic.service;
 
+import org.example.redpic.dto.ChatReply;
+import org.example.redpic.dto.ChatRequest;
+
 public interface ChatService {
-    String chat(String message);
+    ChatReply chat(ChatRequest chatRequest);
 }
