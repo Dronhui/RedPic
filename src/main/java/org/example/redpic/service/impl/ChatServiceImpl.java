@@ -1,6 +1,6 @@
 package org.example.redpic.service.impl;
 
-import org.example.redpic.config.AiProperties;
+import org.example.redpic.config.AiPromptsProperties;
 import org.example.redpic.dto.ChatReply;
 import org.example.redpic.dto.ChatRequest;
 import org.example.redpic.service.ChatService;
@@ -9,21 +9,23 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.UUID;
 
 @Service
 public class ChatServiceImpl implements ChatService {
     private final ChatClient chatClient;
-    private final AiProperties aiProperties;
+    private final AiPromptsProperties aiPromptsProperties;
     private final MessageWindowChatMemory aiChatMemory;
 
     public ChatServiceImpl(ChatClient.Builder chatClientBuilder,
-                           AiProperties aiProperties,
+                           AiPromptsProperties aiPromptsProperties,
                            MessageWindowChatMemory aiChatMemory) {
         this.chatClient = chatClientBuilder.defaultAdvisors(MessageChatMemoryAdvisor.builder(aiChatMemory).build()).build();
-        this.aiProperties = aiProperties;
+        this.aiPromptsProperties = aiPromptsProperties;
         this.aiChatMemory = aiChatMemory;
     }
 
@@ -31,10 +33,24 @@ public class ChatServiceImpl implements ChatService {
     public ChatReply chat(ChatRequest chatRequest) {
         String inputId = chatRequest.sessionId();
         String finalSessionId = (inputId == null || inputId.isBlank()) ? UUID.randomUUID().toString() : inputId;
-
+        String usertype = chatRequest.type();
+        if (usertype == null || usertype.isBlank()||
+        !aiPromptsProperties.prompt().containsKey(usertype)) {
+            usertype = "default";
+        }
+        String Promptpath = aiPromptsProperties.prompt().get(usertype);
+        ClassPathResource gpsPath =
+                new ClassPathResource(Promptpath);
+        String systememprompt = "";
+        try {
+            systememprompt =
+                    new String(gpsPath.getInputStream().readAllBytes(),"UTF-8");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         ChatResponse answer = chatClient.prompt()
-                .system(aiProperties.systemPrompt())
+                .system(systememprompt)
                 .user(chatRequest.message())
                 .advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
                 .call()
