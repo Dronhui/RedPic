@@ -21,10 +21,10 @@ public class ChatServiceImpl implements ChatService {
     private final AiPromptsProperties aiPromptsProperties;
     private final MessageWindowChatMemory aiChatMemory;
 
-    public ChatServiceImpl(ChatClient.Builder chatClientBuilder,
+    public ChatServiceImpl(ChatClient chatClient,
                            AiPromptsProperties aiPromptsProperties,
                            MessageWindowChatMemory aiChatMemory) {
-        this.chatClient = chatClientBuilder.defaultAdvisors(MessageChatMemoryAdvisor.builder(aiChatMemory).build()).build();
+        this.chatClient = chatClient.mutate().defaultAdvisors(MessageChatMemoryAdvisor.builder(aiChatMemory).build()).build();
         this.aiPromptsProperties = aiPromptsProperties;
         this.aiChatMemory = aiChatMemory;
     }

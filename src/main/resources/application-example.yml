@@ -7,7 +7,13 @@ spring:
       chat:
         options:
           model: deepseek-chat
-          max-tokens: 520
+          max-tokens: 521
+    zhipuai:
+      api-key: 你的智谱APIKey
+      embedding:
+        options:
+          model: embedding-3
+
 
 server:
   port: 8080
