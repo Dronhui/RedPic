@@ -10,6 +10,10 @@ spring:
           max-tokens: 521
     zhipuai:
       api-key: 你的智谱APIKey
+      chat:
+        options:
+          model: glm-4v-plus
+          max-tokens: 200
       embedding:
         options:
           model: embedding-3
