@@ -4,10 +4,13 @@ import org.example.redpic.service.KnowledgeBaseService;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.TextReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
 import java.util.List;
 
 @Service
@@ -18,7 +21,6 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
     @Override
     public void importDocument(MultipartFile file) {
-
         try {
             var resource = new InputStreamResource(file.getInputStream());
             TextReader textReader = new TextReader(resource);
@@ -26,6 +28,10 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             TokenTextSplitter splitter = new TokenTextSplitter();
             List<Document>  splitDocuments = splitter.apply(documents);
             vectorStore.add( splitDocuments);
+            if (vectorStore instanceof SimpleVectorStore simpleVStore) {
+                simpleVStore.save(new File("vector_store.json"));
+                System.out.println("====== 成功导入并保存到本地！ ======");
+            }
             System.out.println("====== 成功导入了 " +
                     splitDocuments.size() + " 个文本块！ ======");
         } catch (Exception e) {

@@ -22,7 +22,7 @@ public class RagChatServiceImpl implements RagChatService {
     @Override
     public String chatWithRag(String question) {
         List<Document> docs = vectorStore.similaritySearch(
-                SearchRequest.builder().query(question).topK(3).build());
+                SearchRequest.builder().query(question).topK(10).build());
         String content = docs.stream().map(Document::getText)
                 .collect(Collectors.joining("\n"));
         String systemPrompt =  """
