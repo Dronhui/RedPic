@@ -2,7 +2,7 @@ package org.example.redpic.service.impl;
 
 import org.example.redpic.service.VisionService;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.zhipuai.ZhiPuAiChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -14,9 +14,8 @@ import java.io.IOException;
 @Service
 public class VisionServiceImpl implements VisionService {
     private final ChatClient visionChatClient;
-    public VisionServiceImpl(ZhiPuAiChatModel zhiPuAiChatModel) {
-        this.visionChatClient = ChatClient.builder(
-                zhiPuAiChatModel).build();
+    public VisionServiceImpl(@Qualifier("visionChatClient") ChatClient visionChatClient) {
+        this.visionChatClient = visionChatClient;
     }
 
 

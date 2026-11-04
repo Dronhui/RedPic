@@ -4,13 +4,12 @@ import org.example.redpic.service.MultimodalService;
 import org.example.redpic.service.RagChatService;
 import org.example.redpic.service.VisionService;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.memory.MessageWindowChatMemory;
-import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-
+import java.io.IOException;
 import java.util.UUID;
 
 @Service
@@ -18,16 +17,21 @@ public class MultimodalServiceImpl implements MultimodalService {
     private final RagChatService ragChatService;
     private final VisionService visionService;
     private final ChatClient memoryChatClient;
+    private final String rewriteTemplate;
 
     public MultimodalServiceImpl(RagChatService ragChatService,
                                  VisionService visionService,
-                                 DeepSeekChatModel deepSeekChatModel,
-                                 MessageWindowChatMemory aiChatMemory) {
+                                 @Qualifier("memoryChatClient") ChatClient memoryChatClient) {
         this.ragChatService = ragChatService;
         this.visionService = visionService;
-        this.memoryChatClient = ChatClient.builder(deepSeekChatModel)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(aiChatMemory).build())
-                .build();
+        this.memoryChatClient = memoryChatClient;
+        try {
+            ClassPathResource gpsPath = new ClassPathResource("prompts/rewrite.st");
+            this.rewriteTemplate = new String(gpsPath.getInputStream()
+                    .readAllBytes(),"UTF-8");
+        } catch (IOException e) {
+            throw new RuntimeException("初始化失败：无法读取 rewrite.st 模板文件",e);
+        }
     }
     @Override
     public String chatWithImage(MultipartFile image, String question,String inputSessionId) {
@@ -43,12 +47,7 @@ public class MultimodalServiceImpl implements MultimodalService {
                     .call()
                     .content();
         }
-        String rewritePrompt = """
-                 你是一个智能检索助手。请根据历史对话，将用户的问题改写为一个包含具体地名的独立问题。
-                 如果用户问题包含了代词（如“那里”、“这里”），请结合历史对话中的实体进行替换。
-                 直接输出改写后的问题，绝对不要输出任何废话。
-                 用户问题：%s
-                """.formatted(question);
+        String rewritePrompt = rewriteTemplate.formatted(question);
         String rewrittenQuestion = memoryChatClient.prompt()
                 .user(rewritePrompt)
                 .advisors(a->a.param(ChatMemory.CONVERSATION_ID,sessionId))

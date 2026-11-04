@@ -9,6 +9,7 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -21,10 +22,10 @@ public class ChatServiceImpl implements ChatService {
     private final AiPromptsProperties aiPromptsProperties;
     private final MessageWindowChatMemory aiChatMemory;
 
-    public ChatServiceImpl(ChatClient chatClient,
+    public ChatServiceImpl(@Qualifier("memoryChatClient") ChatClient chatClient,
                            AiPromptsProperties aiPromptsProperties,
                            MessageWindowChatMemory aiChatMemory) {
-        this.chatClient = chatClient.mutate().defaultAdvisors(MessageChatMemoryAdvisor.builder(aiChatMemory).build()).build();
+        this.chatClient = chatClient;
         this.aiPromptsProperties = aiPromptsProperties;
         this.aiChatMemory = aiChatMemory;
     }
