@@ -1,73 +1,148 @@
-# RedPic 红图 · 红色文化AI图像识别讲解系统
+# RedPic 红图 · 红色文化 AI 图像识别讲解系统
 
-基于 Java 17 + Spring Boot 3.3.5 + Spring AI 打造的红色文旅智能识别项目。核心能力为红色老照片、革命遗址实拍图的自动识别与专业讲解，配套多轮对话、RAG 知识库检索等能力，以图像为核心载体，数字化传承红色文化。
+> 基于 Java 17 + Spring Boot 3.3.5 + Spring AI 1.0.0 打造的红色文旅智能导览系统。核心能力为红色老照片、革命遗址实拍图的自动识别与专业讲解，配套多轮对话、RAG 知识库检索等能力，以图像为核心载体，数字化传承红色文化。
+
+## ✨ 核心特性
+
+- **🧠 三模型混合编排，各取所长**：文本对话接入 **DeepSeek**（长上下文、高性价比）；向量检索接入 **智谱 Embedding-3**（中文史料语义优势）；视觉识别接入 **阿里千问 Qwen3-VL-Plus**（针对历史人物与老旧建筑识别专项优化）。通过 `ChatClient` 工厂模式与 `@Qualifier` 隔离，实现 Provider 无缝扩展。
+- **🌊 真·SSE 流式输出**：拒绝假打字机！前后端全链路响应式编程（Spring WebFlux + `Flux` + 前端 `ReadableStream`）。大模型边生成边输出，首字延迟低至毫秒级，支持用户随时发送新消息打断上一轮对话（AbortController）。
+- **🎯 大一统接口与八维业务路由**：将纯文本、多模态识图、RAG 查库合并为统一的 `/api/v1/chat/unified` 接口。前端通过勾选“角色（专家/普通）”与“结合本地史料库（RAG开关）”，后端智能编排 8 种业务分支，代码高度解耦。
+- **🛡️ 三层防幻觉机制**：`检索层` RAG 退化为纯纯的查库工具；`Prompt 层` 强约束“涉及史实必须一字不差，禁止脑补编造机构与时间”；`输出层` 正则清洗与兜底话术。从根源抑制大模型在严肃历史题材中的幻觉问题。
 
 ## 📐 系统架构
 
 ```mermaid
-graph LR
-    A[前端/云朵机器人] -->|API 请求| B(Spring Boot 控制层)
-    B --> C{动态场景路由}
+graph TD
+    %% 前端交互层
+    Client[前端 · 云朵机器人 (流式接收/可打断)] -->|POST /api/v1/chat/unified| Controller[大一统 ChatController]
     
-    %% 分支路由
-    C -->|普通/专家对话| D[ChatService]
-    C -->|RAG 知识库问答| 云端视觉引擎]
-    E[RagChatService]
-    C -->|图像识别预埋| F[
-    %% RAG 检索增强核心流程
-    E -->|1. 检索 TopK| G[(VectorStore 向量库)]
-    G -->|2. 返回相关文本块| E
-    F -->|识别结果流转| E
+    %% 业务编排层
+# RedPic 红图 · 红色文化 AI 图像识别讲解系统
+
+> 基于 Java 17 + Spring Boot 3.3.5 + Spring AI 1.0.0 打造的红色文旅智能导览系统。核心能力为红色老照片、革命遗址实拍图的自动识别与专业讲解，配套多轮对话、RAG 知识库检索等能力，以图像为核心载体，数字化传承红色文化。
+
+## ✨ 核心特性
+
+- **🧠 三模型混合编排，各取所长**：文本对话接入 **DeepSeek**（长上下文、高性价比）；向量检索接入 **智谱 Embedding-3**（中文史料语义优势）；视觉识别接入 **阿里千问 Qwen3-VL-Plus**（针对历史人物与老旧建筑识别专项优化）。通过 `ChatClient` 工厂模式与 `@Qualifier` 隔离，实现 Provider 无缝扩展。
+- **🌊 真·SSE 流式输出**：拒绝假打字机！前后端全链路响应式编程（Spring WebFlux + `Flux` + 前端 `ReadableStream`）。大模型边生成边输出，首字延迟低至毫秒级，支持用户随时发送新消息打断上一轮对话（AbortController）。
+- **🎯 大一统接口与八维业务路由**：将纯文本、多模态识图、RAG 查库合并为统一的 `/api/v1/chat/unified` 接口。前端通过勾选“角色（专家/普通）”与“结合本地史料库（RAG开关）”，后端智能编排 8 种业务分支，代码高度解耦。
+- **🛡️ 三层防幻觉机制**：`检索层` RAG 退化为纯纯的查库工具；`Prompt 层` 强约束“涉及史实必须一字不差，禁止脑补编造机构与时间”；`输出层` 正则清洗与兜底话术。从根源抑制大模型在严肃历史题材中的幻觉问题。
+
+## 📐 系统架构
+
+```mermaid
+graph TD
+    %% 前端交互层
+    Client[前端 · 云朵机器人 (流式接收/可打断)] -->|POST /api/v1/chat/unified| Controller[大一统 ChatController]
     
-    %% 统一组装并调用大模型
-    D -->|组装 Prompt| H[Spring AI ChatClient]
-    E -->|3. 拼接资料与 Prompt| H
+    %% 业务编排层
+    Controller --> Service[Unified ChatService]
     
-    H -->|4. 请求推理| I[DeepSeek 大模型]
-    I -->|SSE 流式/普通响应| H
+    Service -->|1. 传图?| Vision[千问 Vision 识图]
+    Vision -->|实体写入| Memory[(记忆上下文)]
     
-    %% 响应回传
-    H -->|包装返回| B
-    B --> A
+    Service -->|2. 路由判断| Router{useRag ?}
+    
+    %% RAG 链路
+    Router -->|Yes| Rewrite[Query Rewrite 意图重写]
+    Rewrite -->|结合记忆| RagSearch[RagSearchService (纯查库工具)]
+    RagSearch -->|向量检索| VectorStore[(SimpleVectorStore)]
+    RagSearch -->|拼接资料与专家Prompt| LLM[DeepSeek 生成]
+    
+    %% 纯聊天链路
+    Router -->|No| LLM
+    
+    %% 流式输出
+    LLM -->|Flux String SSE| Client
 ```
 
-## 核心功能
+## 💡 设计决策与难点突破
 
-- 🖼️ **红色图像识别讲解（核心）**：上传红色老照片、革命遗址实拍图，自动识别画面主体，结合史料输出专业历史背景与故事讲解。
-- 💬 **专属讲解员多轮对话**：红色文旅垂直人设，基于动态 Prompt 路由支持日常讲解与专家学术双模式无缝切换。
-- 📚 **RAG 知识库检索问答**：基于本地红色史料知识库作答，内容精准权威，从根源减少大模型幻觉。
-- 🛡️ **企业级工程规范**：统一返回体、参数校验、全局异常兜底、Token 成本控制、配置与业务解耦。
+### 1. 视觉模型选型与三模型解耦
+早期使用单一视觉模型时，对特定历史人物存在明显的“脸盲”现象。经过横向评测，最终将视觉模块迁移至**阿里千问 Qwen3-VL-Plus**。工程上，避免模型绑定，通过 `AiModelConfig` 统一装配 `ChatClient`，确保未来接入新模型只需修改配置，无需改动业务代码。
 
-## 技术栈
+### 2. RAG 纯工具化与统一生成（解耦）
+摒弃了传统 RAG “检索+生成”一把抓的黑盒模式。将 `RagSearchService` 降级为只负责“查库并返回纯文本”。生成环节上浮至大一统 `ChatService`，结合动态人设（专家/普通）拼装 SystemPrompt 统一调用大模型。既保证了人设的灵活切换，又让后续接入 SSE 流式输出变得极其简单。
 
-- 后端框架：Java 17, Spring Boot 3.3.5
-- AI 引擎：Spring AI 1.0.0, DeepSeek 大模型
-- 架构设计：MVC分层架构、面向接口编程、策略路由模式
-- 工程规范：统一响应结构、全局异常处理、参数校验、基于 ClassPathResource 的外部模板动态加载
+### 3. Query Rewrite 解决跨模态指代消解
+在多模态连续追问场景下，用户常使用代词（如“他有什么故事”）。系统在检索前，利用大模型结合会话记忆，将问题重写为独立问句（如“陈奇涵有什么故事”），确保向量检索的召回精度。
 
-## 功能实现进度
+### 4. 原生 SSE 流式与打断机制
+后端使用 Spring AI 的 `.stream().content()` 返回 `Flux<String>`，配合 `MediaType.TEXT_EVENT_STREAM_VALUE`。前端彻底抛弃 `setInterval` 假打字机，通过 `fetch` 的 `getReader()` 解析流式数据。同时引入 `AbortController`，当 AI 还在长篇大论时，用户随时可以发送新消息，瞬间掐断上一次网络请求，实现“用户至上”的交互体验。
 
-- ✅ 基础接口规范：统一返回体、参数校验、全局异常兜底
-- ✅ 多轮上下文记忆与会话隔离：基于 Advisor 与 SessionId 实现
-- ✅ 动态 Prompt 模板：实现变量注入，支持根据不同用户类型切换专家/普通模式
-- ✅ **RAG 知识库检索构建（核心）**：完成本地文档解析、切片、智谱 Embedding 向量化及向量数据库存储链路，并成功实现基于私有史料的相似度检索，**大幅降低大模型幻觉**。
-- ✅ **多模态视觉识别接口（核心）**：对接智谱云端视觉引擎（glm-4v），打通图片上传与单轮视觉问答，实现图像主体特征的精准提取。
-- ✅ **多模态与 RAG 深度融合**：将视觉模型提取的实体特征，注入 RAG 检索链路，实现“识图 -> 查史料 -> 生成讲解”的跨模态闭环。
-- ✅ **多模态上下文问答**：支持基于同一张图片的连续上下文追问与深度解析。
-- ⏳ 流式输出 (SSE)：实现打字机效果，结合异步线程池降低首字延迟并优化并发阻塞。
-- ⏳ 前端云朵机器人交互与接口联调。
-- ⏳ 接口安全加固：限流、全链路日志、敏感词过滤。
-- ⏳ 服务器部署与线上发布：Docker 容器化。
+## 🛠 技术栈
 
-## 本地运行
+| 分类 | 技术选型 | 备注 |
+| :--- | :--- | :--- |
+| **语言 & 框架** | Java 17, Spring Boot 3.3.5 | 基础后端框架 |
+| **AI 编排层** | Spring AI 1.0.0 | 统一模型抽象与编排 |
+| **文本生成模型** | DeepSeek `deepseek-chat` | 长上下文、高性价比 |
+| **视觉识别模型** | 阿里千问 `Qwen3-VL-Plus` | 老旧照片与历史人物专精 |
+| **向量化模型** | 智谱 `embedding-3` | 中文史料语义优势 |
+| **向量存储** | Spring AI `SimpleVectorStore` | 本地 JSON 文件快照持久化 |
+| **流式传输** | Spring WebFlux `Flux` + SSE | 前端打字机效果支撑 |
+| **前端** | 原生 HTML/CSS/JS (Trae VibeCoding) | 红色复古主题 / 可拖拽缩放 / 流式渲染 |
 
-1. 复制 `application-example.yml` 为 `application.yml`，填入自己的 API Key
-2. 启动启动类 `RedPicApplication`，服务默认运行在 8080 端口
-3. 调用对话接口测试多轮对话与动态人设能力（以专家模式为例）：
+## 🚀 快速开始
 
-```json
-{
-  "message": "给我讲讲兴国",
-  "type": "expert"
-}
+### 本地运行
+
+```bash
+# 1. 克隆代码
+git clone https://github.com/your-name/redpic.git && cd redpic
+
+# 2. 配置环境
+cp src/main/resources/application-example.yml src/main/resources/application.yml
+# 填入各自的 API Key (DeepSeek / 智谱 / 阿里百炼 DashScope)
+
+# 3. 启动服务 (默认 8080 端口)
+./mvnw spring-boot:run
 ```
+
+### 接口测试 (流式大一统接口)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/chat/unified \
+  -H "Content-Type: multipart/form-data" \
+  -F "question=他有什么故事" \
+  -F "useRag=true" \
+  -F "type=expert" \
+  -F "session=test-session-001" \
+  -F "image=@chenqihan.jpg"
+```
+
+## 📂 项目结构
+
+```text
+redpic/
+├── src/main/java/org/example/redpic/
+│   ├── controller/        # REST 控制器 (大一统 ChatController)
+│   ├── service/           # 业务接口定义
+│   │   └── impl/          # Chat / RagSearch / Vision / Knowledge 实现
+│   ├── config/            # ChatClient 工厂、Prompts 加载、内存配置
+│   ├── common/            # 统一响应体 Result<T> (普通接口使用)
+│   └── exception/         # 全局异常处理
+├── src/main/resources/
+│   ├── prompt/            # 外置 Prompt 模板 (.txt)
+│   ├── static/            # 前端云朵机器人 (index.html)
+│   ├── application.yml
+└── vector_store.json      # 本地向量库快照文件
+```
+
+## 🗺 开发路线图
+
+### ✅ 已完成
+- [x] 基础接口规范与全局异常处理
+- [x] 三模型（DeepSeek/智谱/千问）接入与解耦装配
+- [x] RAG 知识库构建链路（解析、切片、向量化、持久化）
+- [x] 大一统 ChatService 重构，支持 8 种业务组合路由
+- [x] 前后端全链路真实 SSE 流式输出与打断机制
+- [x] 前端交互升级：复古红色主题、可拖拽缩放、角色与 RAG 开关面板
+- [x] 防幻觉 Prompt 约束与知识库兜底话术
+
+### ⏳ 开发中 (D4 - D10)
+- [ ] **用户鉴权**：引入 MySQL + MyBatis-Plus + Sa-Token 登录验证。
+- [ ] **持久化记忆**：替换 InMemory，落地 Redis + MySQL 方案。
+- [ ] **RAG 评测**：建立人工标注集，统计不同 TopK 下的召回率指标。
+- [ ] **一键部署**：完成 Docker Compose 编排并部署至云服务器。
+- [ ] 接口安全：限流与敏感词过滤。
