@@ -1,18 +1,16 @@
 package org.example.redpic.controller;
-
-import org.example.redpic.common.Result;
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import org.example.redpic.service.ChatService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
-import jakarta.validation.Valid;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/v1/chat")
+@SaCheckLogin
 public class ChatController {
-    private ChatService chatService;
+    private final ChatService chatService;
 
     public ChatController(ChatService chatService) {
         this.chatService = chatService;

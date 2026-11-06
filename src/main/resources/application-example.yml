@@ -23,14 +23,11 @@ spring:
         options:
           model: qwen3-vl-plus
           max-tokens: 521
-
-
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/redpic?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password:
 
 server:
   port: 8080
-redpic:
-  ai:
-    prompt:
-      default: prompts/chat-redpic-default.st
-      expert: prompts/chat-redpic-expert.st
-      image: prompts/chat-redpic-image.st
