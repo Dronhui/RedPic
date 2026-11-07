@@ -40,7 +40,7 @@ public class AuthServiceImpl implements AuthService {
         if(user ==null||!user.getPassword().equals(SaSecureUtil.md5(password))){
             throw new RuntimeException("用户名或密码错误");
         }
-        StpUtil.login(user.getId());
+        StpUtil.login(user.getUserId());
         return StpUtil.getTokenValue();
 
 

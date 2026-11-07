@@ -10,8 +10,8 @@ import java.time.LocalDateTime;
 @Data
 @TableName("redpic_user")
 public class SysUser {
-    @TableId(type = IdType.AUTO)
-    private Long id;
+    @TableId(value = "id",type = IdType.AUTO)
+    private Long userId;
     private String username;
     private String password;
     private LocalDateTime createTime;

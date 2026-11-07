@@ -22,9 +22,9 @@ public class ChatController {
             @RequestParam(value = "question", defaultValue = "") String question,
             @RequestParam(value = "useRag", defaultValue = "false") boolean useRag,
             @RequestParam(value = "type", defaultValue = "default") String type,
-            @RequestParam(value = "session", defaultValue = "", required = false) String session
+            @RequestParam(value = "sessionId", defaultValue = "", required = false) String sessionId
     ) {
-        return chatService.chat(image, question, useRag, type, session);
+        return chatService.chat(image, question, useRag, type, sessionId);
 
 
     }

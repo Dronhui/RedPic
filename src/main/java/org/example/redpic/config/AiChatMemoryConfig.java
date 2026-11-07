@@ -1,6 +1,6 @@
 package org.example.redpic.config;
 
-import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
+import org.example.redpic.repository.RedisChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,9 +8,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AiChatMemoryConfig {
     @Bean
-    public MessageWindowChatMemory aiChatMemory(){
+    public MessageWindowChatMemory aiChatMemory(RedisChatMemoryRepository chatMemoryRepository) {
         return MessageWindowChatMemory.builder()
-                .chatMemoryRepository(new InMemoryChatMemoryRepository())
+                .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(10)
                 .build();
 

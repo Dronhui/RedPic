@@ -1,7 +1,9 @@
 package org.example.redpic.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import org.example.redpic.common.Result;
 import org.example.redpic.service.AuthService;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,6 +26,16 @@ public class AuthController {
     public Result<String> login(@RequestParam("username") String username, @RequestParam("password") String password){
         String token = authService.login(username,password);
         return Result.success("登录成功，你的token是："+token);
+    }
+    @PostMapping("/logout")
+    public Result<String> logout(){
+        StpUtil.logout();
+        return Result.success("退出成功，同志，期待下次相遇！");
+    }
+
+    @GetMapping("/check")
+    public Result<String> check(){
+        return Result.success(StpUtil.getLoginIdAsString());
     }
 
 }

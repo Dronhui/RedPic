@@ -1,9 +1,36 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+<script>
+  // 登录拦截：先检查本地 token，再调后端验证有效性
+  // 在验证通过前，整个页面隐藏，防止聊天界面闪现
+  document.documentElement.style.visibility = 'hidden';
+  (async function(){
+    const saToken = (localStorage.getItem('satoken') || '').trim();
+    if (!saToken) {
+      window.location.replace('login.html');
+      return;
+    }
+    try {
+      const res = await fetch('http://localhost:8080/api/auth/check', {
+        headers: { 'satoken': saToken }
+      });
+      if (res.status === 401) {
+        localStorage.removeItem('satoken');
+        window.location.replace('login.html');
+        return;
+      }
+      // 验证通过，显示页面
+      document.documentElement.style.visibility = 'visible';
+    } catch (e) {
+      localStorage.removeItem('satoken');
+      window.location.replace('login.html');
+    }
+  })();
+</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>红色文旅 AI 导览 · 小红军陪你学历史</title>
+<title>RedPic · 红色文化多模态解析</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%238b1a1a'/%3E%3Cpath fill='%23fff' d='M16 5l2.9 6.6 7.1.7-5.3 4.8 1.5 7L16 20.9 9.8 24.1l1.5-7L6 12.3l7.1-.7z'/%3E%3C/svg%3E" />
 <style>
   /* ============ 基础重置 ============ */
@@ -79,7 +106,7 @@
     50% { transform: scale(1.3) rotate(15deg); opacity: 0.7; }
   }
 
-  /* ============ 主角小红军 ============ */
+  /* ============ 主角 RedPic 分析师 ============ */
   .soldier-wrap {
     position: fixed;
     left: 60px;
@@ -229,7 +256,7 @@
     min-height: 280px;
     max-height: 92vh;
     resize: both;
-    overflow: hidden;
+    overflow: auto;
     background: linear-gradient(160deg, rgba(255, 250, 240, 0.96), rgba(253, 238, 215, 0.94));
     border: 2.5px solid #8b1a1a;
     border-bottom: none;
@@ -243,11 +270,34 @@
     backdrop-filter: blur(6px);
   }
   .game-dialog.show { transform: translateY(0); }
-  /* 自定义缩放手柄颜色 */
+  /* 自定义缩放手柄颜色（WebKit 内核） */
   .game-dialog::-webkit-resizer {
     background: linear-gradient(135deg, transparent 50%, #8b1a1a 50%);
     border-radius: 0 0 0 4px;
+    width: 18px; height: 18px;
   }
+  /* 右下角拖拽手柄（JS 驱动，保证所有浏览器可用） */
+  .resize-handle {
+    position: absolute;
+    right: 0; bottom: 0;
+    width: 28px; height: 28px;
+    cursor: nwse-resize;
+    z-index: 20;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0 4px 4px 0;
+  }
+  .resize-handle::before {
+    content: "";
+    width: 14px; height: 14px;
+    background-image:
+      linear-gradient(45deg, transparent 0 40%, #8b1a1a 40% 55%, transparent 55% 100%),
+      linear-gradient(45deg, transparent 0 60%, #8b1a1a 60% 72%, transparent 72% 100%);
+    background-repeat: no-repeat;
+    opacity: 0.7;
+  }
+  .resize-handle:hover::before { opacity: 1; }
 
   .dialog-header {
     display: flex;
@@ -287,6 +337,25 @@
     color: #fff;
     transform: rotate(90deg);
   }
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .logout-btn {
+    background: none;
+    border: 1.5px solid #8b1a1a;
+    color: #8b1a1a;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 17px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    font-weight: 600;
+  }
+  .logout-btn:hover {
+    background: #8b1a1a;
+    color: #fff;
+  }
+  /* 头部可拖拽移动 */
+  #dialogHeader { cursor: move; user-select: none; }
 
   /* ============ 参数控制面板 ============ */
   .control-panel {
@@ -597,13 +666,13 @@
 <body>
 
   <div class="title-bar">
-    <h1><span class="star">★</span>红色文旅 AI 导览<span class="star">★</span></h1>
-    <div class="sub">与小红军一起 · 重温峥嵘岁月</div>
+    <h1><span class="star">★</span>RedPic · 红色文化多模态解析<span class="star">★</span></h1>
+    <div class="sub">图像分割与大模型驱动 · 让史料可被看见</div>
   </div>
 
   <div class="soldier-wrap" id="soldierWrap" title="点我聊聊历史吧~">
     <div class="soldier" id="soldier">
-      <img src="soldier.png" alt="小红军" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+      <img src="soldier.png" alt="RedPic 多模态分析师" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
       <div class="placeholder">🧑‍✈️</div>
     </div>
     <div class="cloud-bubble" id="cloudBubble">
@@ -619,9 +688,12 @@
   <div class="dialog-mask" id="dialogMask"></div>
 
   <div class="game-dialog" id="gameDialog">
-    <div class="dialog-header">
-      <div class="name-tag">🚩 小红军 · 导览员</div>
-      <button class="close-btn" id="closeBtn" title="收起">×</button>
+    <div class="dialog-header" id="dialogHeader">
+      <div class="name-tag">🚩 RedPic 多模态分析师</div>
+      <div class="header-actions">
+        <button class="logout-btn" id="logoutBtn" title="退出登录">退出</button>
+        <button class="close-btn" id="closeBtn" title="收起">×</button>
+      </div>
     </div>
 
     <!-- 参数控制面板 -->
@@ -629,8 +701,8 @@
       <div class="control-item">
         <label for="roleSelect">🎭 角色：</label>
         <select class="role-select" id="roleSelect">
-          <option value="default">普通导览员</option>
-          <option value="expert">专家讲解员</option>
+          <option value="default">普通分析师</option>
+          <option value="expert">专家研究员</option>
         </select>
       </div>
       <div class="control-item">
@@ -646,7 +718,7 @@
     <div class="chat-log" id="chatLog">
       <div class="msg bot">
         <div class="avatar">🧑‍✈️</div>
-        <div class="bubble">你好呀同志！我是小红军导览员～<br/>可以问我红色遗址的历史故事，也可以上传一张老照片让我讲讲它的来历哦！</div>
+        <div class="bubble">你好同志！我是 RedPic 多模态分析师～<br/>可以上传历史照片/遗址实拍让我做图像解析，也可以输入史料问题进行深度问答哦！</div>
       </div>
     </div>
 
@@ -655,9 +727,10 @@
         📷
         <input type="file" id="imageInput" accept="image/*" />
       </div>
-      <input class="text-input" id="textInput" type="text" placeholder="输入你的问题，比如：讲讲井冈山的故事..." maxlength="500" />
+      <input class="text-input" id="textInput" type="text" placeholder="上传历史照片/遗址实拍，或输入你想分析的史料问题..." maxlength="500" />
       <button class="send-btn" id="sendBtn">发送</button>
     </div>
+    <div class="resize-handle" title="拖拽右下角可缩放对话框"></div>
   </div>
 
   <div class="hint">session: test888</div>
@@ -670,6 +743,9 @@
   const dialogMask   = document.getElementById('dialogMask');
   const gameDialog   = document.getElementById('gameDialog');
   const closeBtn     = document.getElementById('closeBtn');
+  const logoutBtn    = document.getElementById('logoutBtn');
+  const dialogHeader = document.getElementById('dialogHeader');
+  const resizeHandle = document.querySelector('.resize-handle');
   const chatLog      = document.getElementById('chatLog');
   const textInput    = document.getElementById('textInput');
   const sendBtn      = document.getElementById('sendBtn');
@@ -681,7 +757,13 @@
   const ragLabel     = document.getElementById('ragLabel');
 
   /* ================= 常量 ================= */
-  const SESSION_ID = 'test888';
+  // 会话 ID：优先从 localStorage 取，没有就生成新的并持久化，保证上下文连续
+  let currentSessionId = localStorage.getItem('chatSessionId');
+  if (!currentSessionId) {
+    currentSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('chatSessionId', currentSessionId);
+  }
+  console.log('[Session] currentSessionId =', currentSessionId);
   const API_URL    = 'http://localhost:8080/api/v1/chat/unified';
 
   /* ================= 全局状态 ================= */
@@ -694,6 +776,15 @@
   /* ================= 打开 / 关闭对话框 ================= */
   function openDialog(){
     cloudBubble.style.display = 'none';
+    // 清除拖拽/缩放残留的内联样式，恢复 CSS 动画
+    gameDialog.style.left = '';
+    gameDialog.style.top = '';
+    gameDialog.style.right = '';
+    gameDialog.style.bottom = '';
+    gameDialog.style.margin = '';
+    gameDialog.style.transform = '';
+    gameDialog.style.width = '';
+    gameDialog.style.height = '';
     gameDialog.classList.add('show');
     dialogMask.classList.add('show');
     setTimeout(() => textInput.focus(), 500);
@@ -701,13 +792,130 @@
   function closeDialog(){
     gameDialog.classList.remove('show');
     dialogMask.classList.remove('show');
-    setTimeout(() => { cloudBubble.style.display = ''; }, 500);
+    // 动画结束后清除拖拽/缩放的内联样式
+    setTimeout(() => {
+      gameDialog.style.left = '';
+      gameDialog.style.top = '';
+      gameDialog.style.right = '';
+      gameDialog.style.bottom = '';
+      gameDialog.style.margin = '';
+      gameDialog.style.transform = '';
+      gameDialog.style.width = '';
+      gameDialog.style.height = '';
+      cloudBubble.style.display = '';
+    }, 500);
   }
 
   soldierWrap.addEventListener('click', openDialog);
   cloudBubble.addEventListener('click', (e) => { e.stopPropagation(); openDialog(); });
   closeBtn.addEventListener('click', closeDialog);
   dialogMask.addEventListener('click', closeDialog);
+
+  /* ================= 退出登录 ================= */
+  logoutBtn.addEventListener('click', async () => {
+    console.log('[Logout] 退出登录');
+    try {
+      await fetch('http://localhost:8080/api/auth/logout', {
+        method: 'POST',
+        headers: { 'satoken': localStorage.getItem('satoken') || '' }
+      });
+    } catch (e) { /* 忽略网络错误，前端强制登出 */ }
+    localStorage.removeItem('satoken');
+    window.location.href = 'login.html';
+  });
+
+  /* ================= 对话框拖拽缩放（右下角手柄） ================= */
+  let isResizing = false;
+  let resizeStartX = 0, resizeStartY = 0, resizeStartW = 0, resizeStartH = 0;
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    const rect = gameDialog.getBoundingClientRect();
+    resizeStartX = e.clientX;
+    resizeStartY = e.clientY;
+    resizeStartW = rect.width;
+    resizeStartH = rect.height;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'nwse-resize';
+    console.log('[Resize] 开始缩放, 初始尺寸:', resizeStartW, 'x', resizeStartH);
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const dx = e.clientX - resizeStartX;
+    const dy = e.clientY - resizeStartY;
+    let newW = resizeStartW + dx;
+    let newH = resizeStartH + dy;
+    // 限制最小/最大尺寸
+    newW = Math.max(380, Math.min(newW, window.innerWidth * 0.98));
+    newH = Math.max(280, Math.min(newH, window.innerHeight * 0.92));
+    gameDialog.style.width = newW + 'px';
+    gameDialog.style.height = newH + 'px';
+    // 缩放时切换为 left 定位，避免 right:0 导致宽度计算异常
+    gameDialog.style.right = 'auto';
+    gameDialog.style.margin = '0';
+    if (!gameDialog.style.left) {
+      gameDialog.style.left = (window.innerWidth - newW) / 2 + 'px';
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      console.log('[Resize] 结束缩放');
+    }
+  });
+
+  /* ================= 对话框头部拖拽移动 ================= */
+  let isDragging = false;
+  let dragStartX = 0, dragStartY = 0, dragStartLeft = 0, dragStartTop = 0;
+
+  dialogHeader.addEventListener('mousedown', (e) => {
+    // 点击按钮时不触发拖拽
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    isDragging = true;
+    const rect = gameDialog.getBoundingClientRect();
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartLeft = rect.left;
+    dragStartTop = rect.top;
+    // 切换为绝对定位
+    gameDialog.style.left = dragStartLeft + 'px';
+    gameDialog.style.top = dragStartTop + 'px';
+    gameDialog.style.right = 'auto';
+    gameDialog.style.bottom = 'auto';
+    gameDialog.style.margin = '0';
+    gameDialog.style.transform = 'none';
+    document.body.style.userSelect = 'none';
+    console.log('[Drag] 开始移动, 初始位置:', dragStartLeft, dragStartTop);
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    let newLeft = dragStartLeft + dx;
+    let newTop = dragStartTop + dy;
+    // 限制在视口内
+    const rect = gameDialog.getBoundingClientRect();
+    newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - rect.width));
+    newTop = Math.max(0, Math.min(newTop, window.innerHeight - rect.height));
+    gameDialog.style.left = newLeft + 'px';
+    gameDialog.style.top = newTop + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      document.body.style.userSelect = '';
+      console.log('[Drag] 结束移动');
+    }
+  });
 
   /* ================= 控制面板：RAG 开关 UI 联动 ================= */
   function syncRagLabel(){
@@ -914,12 +1122,13 @@
     // —— 构造 FormData ——
     const fd = new FormData();
     fd.append('question', question || '请讲解一下这个遗址的历史背景');
-    fd.append('session', SESSION_ID);
+    fd.append('sessionId', currentSessionId);
     fd.append('type', roleSelect.value);              // default / expert
     fd.append('useRag', String(ragToggle.checked));   // true / false
     if (selectedFile) {
       fd.append('image', selectedFile);
     }
+    console.log('[Chat] FormData.sessionId =', fd.get('sessionId'), '| question =', question);
 
     // —— 创建新的 AbortController ——
     const abortCtrl = new AbortController();
@@ -931,11 +1140,28 @@
     appendThinking(bubble);
 
     try {
+      console.log('[Chat] 发起请求, useRag=' + ragToggle.checked + ', type=' + roleSelect.value + ', hasImage=' + !!selectedFile);
       const res = await fetch(API_URL, {
         method: 'POST',
+        headers: {
+          'satoken': localStorage.getItem('satoken') || ''
+        },
         body: fd,
         signal: abortCtrl.signal
       });
+
+      console.log('[Chat] 响应状态:', res.status);
+
+      // Token 失效：清除并跳转登录页
+      if (res.status === 401) {
+        console.warn('[Chat] Token 失效或未登录，跳转登录页');
+        removeCursor();
+        bubble.innerHTML = '';
+        bubble.appendChild(document.createTextNode('登录已失效，请重新登录。'));
+        localStorage.removeItem('satoken');
+        setTimeout(() => { window.location.href = 'login.html'; }, 1200);
+        return;
+      }
 
       if (!res.ok || !res.body) {
         throw new Error('HTTP ' + res.status);
@@ -991,7 +1217,7 @@
     }
   });
 
-  // 小红军图片加载失败占位
+  // 角色图片加载失败占位
   const soldierImg = document.querySelector('.soldier img');
   soldierImg.addEventListener('error', () => {
     soldierImg.style.display = 'none';
