@@ -214,6 +214,18 @@
   .submit-btn:hover::before { opacity: 1; }
   .submit-btn:active { transform: translateY(0); }
   .submit-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
+  .submit-btn.loading { position: relative; overflow: hidden; }
+  .submit-btn.loading::after {
+    content: ''; position: absolute;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    right: 22px; top: 50%;
+    transform: translateY(-50%);
+    animation: loginBtnSpin 0.7s linear infinite;
+  }
+  @keyframes loginBtnSpin { to { transform: translateY(-50%) rotate(360deg); } }
   .submit-btn span { position: relative; z-index: 2; }
 
   .footer-tip {
@@ -332,6 +344,85 @@
 (function(){
   const API_BASE = 'http://localhost:8080/api/auth';
 
+  /* ================= 全局请求拦截器 ================= */
+  function handleForceLogout(msg) {
+    localStorage.removeItem('satoken');
+    window.dispatchEvent(new CustomEvent('api-error', { detail: msg || '登录已失效' }));
+    setTimeout(() => window.location.replace('login.html'), 900);
+  }
+  const $api = {
+    async request(opts) {
+      const options = {
+        headers: { 'satoken': localStorage.getItem('satoken') || '' },
+        ...opts
+      };
+      if (options.body instanceof FormData) delete options.headers['Content-Type'];
+      let res, text = '', json = {};
+      try {
+        res = await fetch(options.url, options);
+        text = await res.text();
+        json = text ? JSON.parse(text) : {};
+      } catch (e) {
+        const msg = '网络异常，请检查后端服务是否启动';
+        window.dispatchEvent(new CustomEvent('api-error', { detail: msg }));
+        throw new Error(msg);
+      }
+
+      const isUnauthorized = json.code === 401 || (res && res.status === 401);
+      if (isUnauthorized) { handleForceLogout(json.message); throw new Error('UNAUTHORIZED'); }
+
+      if (json.code === 400 || json.code === 500) {
+        const msg = json.message || (json.code === 400 ? '请求参数错误' : '服务器开小差了');
+        window.dispatchEvent(new CustomEvent('api-error', { detail: msg }));
+        throw new Error(msg);
+      }
+
+      if (json.code === 200) return json.data;
+
+      if (res && res.status === 200 && json.code == null) return json.data !== undefined ? json.data : json;
+
+      const msg = json.message || ('请求失败（HTTP ' + (res && res.status) + '）');
+      window.dispatchEvent(new CustomEvent('api-error', { detail: msg }));
+      throw new Error(msg);
+    },
+    postForm: (url, params) => {
+      const body = new URLSearchParams();
+      for (const k in params) body.append(k, params[k]);
+      return $api.request({ url, method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body });
+    }
+  };
+
+  /* ================= 按钮 Loading 工具 ================= */
+  function setBtnLoading(btn, loading, loadingText){
+    const span = btn.querySelector('span') || btn;
+    if (loading) {
+      btn.disabled = true;
+      btn.classList.add('loading');
+      if (span === btn) btn.dataset.originalText = btn.textContent;
+      else span.dataset.originalText = span.textContent;
+      if (loadingText) { span.textContent = loadingText; }
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      const orig = span === btn ? btn.dataset.originalText : span.dataset.originalText;
+      if (orig) { span.textContent = orig; delete (span === btn ? btn.dataset : span.dataset).originalText; }
+    }
+  }
+
+  function sanitizeToken(raw) {
+    if (!raw) throw new Error('登录凭证异常');
+    if (typeof raw === 'object') {
+      if (raw.token) return String(raw.token).trim();
+      throw new Error('登录凭证异常');
+    }
+    const str = String(raw).trim();
+    if (/[：:]\s*([a-zA-Z0-9\-_.]+)/.test(str)) {
+      return str.match(/[：:]\s*([a-zA-Z0-9\-_.]+)/)[1];
+    }
+    if (/[a-zA-Z0-9\-_.]{6,}/.test(str)) return str;
+    throw new Error('登录凭证异常');
+  }
+
   // 生成散落的小五角星
   (function spawnStars(){
     const wrap = document.getElementById('miniStars');
@@ -382,81 +473,29 @@
     }, duration);
   }
 
-  // 发送 application/x-www-form-urlencoded 请求
-  async function postForm(url, params){
-    console.log('[postForm] 请求 URL:', url);
-    console.log('[postForm] 请求参数:', params);
-    const body = new URLSearchParams();
-    for (const k in params) body.append(k, params[k]);
-    let res;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: body
-      });
-    } catch (netErr) {
-      console.error('[postForm] 网络请求失败（可能是 CORS 或服务未启动）:', netErr);
-      throw new Error('NETWORK_ERROR');
-    }
-    console.log('[postForm] 响应状态:', res.status, res.statusText);
-    const text = await res.text();
-    console.log('[postForm] 响应原文:', text);
-    let json = null;
-    try { json = JSON.parse(text); } catch (e) {
-      console.warn('[postForm] 响应不是合法 JSON，将以文本处理');
-    }
-    return { status: res.status, json: json, text: text };
-  }
+  /* ================= 全局 API 错误事件监听 ================= */
+  window.addEventListener('api-error', (e) => toast(e.detail, 'error'));
 
   // 登录
   const loginForm = document.getElementById('loginForm');
   const loginSubmit = document.getElementById('loginSubmit');
   loginForm.addEventListener('submit', async function(e){
     e.preventDefault();
-    console.log('[Login] 表单提交触发');
     const username = document.getElementById('loginUser').value.trim();
     const password = document.getElementById('loginPass').value;
     if (!username || !password) { toast('请填写用户名和密码', 'error'); return; }
 
-    loginSubmit.disabled = true;
-    const span = loginSubmit.querySelector('span');
-    const originalText = span.textContent;
-    span.textContent = '登 录 中...';
-
+    setBtnLoading(loginSubmit, true, '登 录 中...');
     try {
-      const result = await postForm(API_BASE + '/login', { username: username, password: password });
-      console.log('[Login] 返回结果:', result);
-
-      if (result.status === 401) {
-        toast('登录接口被拦截：后端 SaTokenConfig 中 excludePathPatterns 写成了 /api/Auth（大写 A），应改为 /api/auth（小写 a）。请修改后端配置后重启。', 'error', 6000);
-        return;
-      }
-
-      const json = result.json;
-      if (json && json.code === 200) {
-        const data = json.data || '';
-        const match = data.match(/[:：]\s*(.+)$/);
-        const token = (match ? match[1] : data).trim();
-        console.log('[Login] 提取到 token:', token);
-        if (!token) { toast('登录成功但未获取到 token', 'error'); return; }
-        localStorage.setItem('satoken', token);
-        toast('登录成功，欢迎同志！', 'success');
-        setTimeout(function(){ window.location.href = 'index.html'; }, 700);
-      } else {
-        const msg = (json && json.message) || (json && json.msg) || result.text || '登录失败';
-        toast(msg, 'error');
-      }
+      const raw = await $api.postForm(API_BASE + '/login', { username, password });
+      const token = sanitizeToken(raw);
+      localStorage.setItem('satoken', token);
+      toast('登录成功，欢迎同志！', 'success');
+      setTimeout(() => window.location.replace('index.html'), 700);
     } catch (err) {
-      console.error('[Login] 登录异常:', err);
-      if (err.message === 'NETWORK_ERROR') {
-        toast('网络异常：请确认后端服务已启动，且通过 http://localhost:8080/login.html 访问（不要用 file:// 直接打开）', 'error', 5000);
-      } else {
-        toast('登录异常：' + err.message, 'error');
-      }
+      // 拦截器已统一弹红色 toast
     } finally {
-      loginSubmit.disabled = false;
-      span.textContent = originalText;
+      setBtnLoading(loginSubmit, false, '登 录');
     }
   });
 
@@ -473,60 +512,31 @@
     if (password !== password2) { toast('两次输入的密码不一致', 'error'); return; }
     if (password.length < 6) { toast('密码长度至少 6 位', 'error'); return; }
 
-    regSubmit.disabled = true;
-    const span = regSubmit.querySelector('span');
-    const originalText = span.textContent;
-    span.textContent = '注 册 中...';
-
+    setBtnLoading(regSubmit, true, '注 册 中...');
     try {
-      console.log('[Register] 发起注册请求');
-      const result = await postForm(API_BASE + '/register', { username: username, password: password });
-      console.log('[Register] 返回结果:', result);
-
-      if (result.status === 401) {
-        toast('注册接口被拦截：后端 SaTokenConfig 中 excludePathPatterns 写成了 /api/Auth（大写 A），应改为 /api/auth（小写 a）。请修改后端配置后重启。', 'error', 6000);
-        return;
-      }
-
-      const json = result.json;
-      if (json && json.code === 200) {
-        toast(json.data || '注册成功，请登录', 'success');
-        setTimeout(function(){
-          document.querySelector('.tab-btn[data-tab="login"]').click();
-          document.getElementById('loginUser').value = username;
-          document.getElementById('loginPass').focus();
-        }, 600);
-      } else {
-        const msg = (json && json.message) || (json && json.msg) || result.text || '注册失败';
-        toast(msg, 'error');
-      }
+      const data = await $api.postForm(API_BASE + '/register', { username, password });
+      toast(data || '注册成功，请登录', 'success');
+      setTimeout(() => {
+        document.querySelector('.tab-btn[data-tab="login"]').click();
+        document.getElementById('loginUser').value = username;
+        document.getElementById('loginPass').focus();
+      }, 600);
     } catch (err) {
-      console.error('[Register] 注册异常:', err);
-      if (err.message === 'NETWORK_ERROR') {
-        toast('网络异常：请确认后端服务已启动，且通过 http://localhost:8080/login.html 访问', 'error', 5000);
-      } else {
-        toast('注册异常：' + err.message, 'error');
-      }
+      // 拦截器已统一弹红色 toast
     } finally {
-      regSubmit.disabled = false;
-      span.textContent = originalText;
+      setBtnLoading(regSubmit, false, '注 册');
     }
   });
 
-  // 若本地有 token，验证其有效性，有效才跳转主界面
+  // 若本地有 token，验证有效则直接跳转主界面
   const existingToken = (localStorage.getItem('satoken') || '').trim();
   if (existingToken) {
-    fetch('http://localhost:8080/api/auth/check', {
-      headers: { 'satoken': existingToken }
-    }).then(res => {
-      if (res.status === 200) {
-        window.location.href = 'index.html';
-      } else {
-        localStorage.removeItem('satoken');
-      }
-    }).catch(() => {
-      localStorage.removeItem('satoken');
-    });
+    fetch(API_BASE + '/check', { headers: { 'satoken': existingToken } })
+      .then(res => {
+        if (res.status === 200) window.location.replace('index.html');
+        else localStorage.removeItem('satoken');
+      })
+      .catch(() => localStorage.removeItem('satoken'));
   }
 })();
 </script>

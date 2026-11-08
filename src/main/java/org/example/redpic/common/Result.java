@@ -12,4 +12,10 @@ public record Result<T>(
         return new Result<T>(code,message,null);
 
     }
+    public static<T> Result<T> bizError(String message){
+        return new Result<T>(400,message,null);
+    }
+    public static<T> Result<T> forceLoginOut(String message) {
+        return new Result<T>(401, message, null);
+    }
 }

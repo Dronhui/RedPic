@@ -9,23 +9,29 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     @ExceptionHandler(NotLoginException.class)
     public Result<Void> handleNotLoginException(NotLoginException e){
-        return Result.error(401, "未登录，请先登录");
+        log.warn("未登录异常", e);
+        return Result.forceLoginOut("未登录，请先登录");
     }
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<Void> handleValidationException(MethodArgumentNotValidException e){
         String message = e.getBindingResult().getFieldError().getDefaultMessage();
-        return Result.error(400, message);
+        return Result.bizError(message);
     }
+    @ExceptionHandler(BizException.class)
+    public Result<Void> handleBizException(BizException e) {
+        log.warn("业务异常: {}", e.getMessage());
+        // 业务异常直接走 Result.bizError 返回 400，前端收到 400 会弹红字提示用户
+        return Result.bizError(e.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e){
         log.error("系统异常", e);
-        String msg = (e.getMessage() != null && !e.getMessage().isEmpty())
-                ? e.getMessage()
-                : "系统内部错误，请稍后再试";
-        return Result.error(500, msg);
+        return Result.error(500, "系统开小差了，请稍后再试");
     }
 
 }
