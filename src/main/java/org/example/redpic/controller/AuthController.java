@@ -46,7 +46,7 @@ public class AuthController {
     @PostMapping("/updatePassword")
     public Result<String> updatePassword(@RequestParam("newPassword") String newPassword, @RequestParam("oldPassword") String oldPassword){
         authService.updateUserPassword(newPassword,oldPassword);
-        return Result.success("密码修改成功，请重新登陆！");
+        return Result.forceLoginOut("密码修改成功，请重新登陆！");
 
     }
 

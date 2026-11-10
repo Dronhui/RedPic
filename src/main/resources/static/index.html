@@ -13,10 +13,12 @@
       return;
     }
     try {
-      const res = await fetch('http://localhost:8080/api/auth/check', {
+      const res = await fetch('/api/auth/check', {
         headers: { 'satoken': saToken }
       });
-      if (res.status === 401) {
+      let bodyCode = null;
+      try { const j = await res.json(); if (j && j.code != null) bodyCode = j.code; } catch(_) {}
+      if (res.status === 401 || bodyCode === 401) {
         localStorage.removeItem('satoken');
         localStorage.removeItem('chatSessionId');
         window.location.replace('login.html');
@@ -1042,6 +1044,230 @@
     .game-dialog { width: 100vw; max-width: 100vw; height: 82vh; border-radius: 18px 18px 0 0; }
     .settings-drawer { width: 100vw; max-width: 100vw; }
   }
+
+  /* ============ 3D 数字书架 ============ */
+  .knowledge-section {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 8px;
+    margin-bottom: 6px;
+    z-index: 2;
+  }
+  .knowledge-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--red-primary);
+    letter-spacing: 3px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .knowledge-label::before,
+  .knowledge-label::after {
+    content: "";
+    width: 36px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--red-primary));
+  }
+  .knowledge-label::after {
+    background: linear-gradient(90deg, var(--red-primary), transparent);
+  }
+  .knowledge-shelf {
+    display: flex;
+    gap: 22px;
+    perspective: 1200px;
+    z-index: 2;
+  }
+  .shelf-book {
+    position: relative;
+    width: 130px;
+    height: 170px;
+    border-radius: 4px 10px 10px 4px;
+    cursor: pointer;
+    transform-style: preserve-3d;
+    transition: transform 0.5s var(--ease-out), box-shadow 0.3s;
+    box-shadow:
+      0 2px 6px rgba(94, 15, 15, 0.2),
+      2px 0 0 #2a1208,
+      4px 0 0 #2a1208,
+      6px 0 12px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 10px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .shelf-book::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.35), rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.2));
+    border-radius: 4px 0 0 4px;
+  }
+  .shelf-book::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0));
+    border-radius: 4px 10px 0 0;
+  }
+  .shelf-book:hover {
+    transform: translateY(-14px) rotateY(-8deg);
+    box-shadow:
+      0 18px 40px rgba(94, 15, 15, 0.35),
+      2px 0 0 #2a1208,
+      4px 0 0 #2a1208,
+      6px 0 20px rgba(0,0,0,0.3);
+  }
+  .shelf-book .book-icon {
+    font-size: 26px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+  }
+  .shelf-book .book-title {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .shelf-book .book-sub {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.78);
+    margin-top: 6px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .shelf-book.heroes { background: linear-gradient(135deg, #8b1a1a, #5e0f0f); }
+  .shelf-book.sites   { background: linear-gradient(135deg, #c0392b, #8b1a1a); }
+  .shelf-book.stories { background: linear-gradient(135deg, #a04030, #5e0f0f); }
+  .shelf-book .book-ribbon {
+    position: absolute;
+    right: 12px; top: 0;
+    width: 26px; height: 8px;
+    background: #ffd700;
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,0.25);
+  }
+  .shelf-book .book-ribbon::after {
+    content: "";
+    position: absolute;
+    left: 0; bottom: -6px;
+    border-left: 13px solid transparent;
+    border-right: 13px solid transparent;
+    border-top: 6px solid #d4a800;
+  }
+
+  /* ============ 阅读器模态框 ============ */
+  .reader-overlay {
+    position: fixed; inset: 0;
+    background: rgba(30, 8, 8, 0.45);
+    backdrop-filter: blur(5px);
+    z-index: 60;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s ease;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .reader-overlay.show { opacity: 1; pointer-events: auto; }
+
+  .reader-modal {
+    width: min(720px, 92vw);
+    max-height: 80vh;
+    background: linear-gradient(180deg, #fff9ed, #fdf3dc);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-soft);
+    box-shadow: 0 20px 60px rgba(94, 15, 15, 0.35);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    transform: translateY(20px) scale(0.97);
+    transition: transform 0.35s var(--ease-out);
+  }
+  .reader-overlay.show .reader-modal { transform: translateY(0) scale(1); }
+
+  .reader-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(135deg, var(--red-primary), var(--red-deep));
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .reader-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 16px; font-weight: 800; letter-spacing: 2px;
+  }
+  .reader-close {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .reader-close:hover { background: rgba(255,255,255,0.3); transform: scale(1.05); }
+
+  .reader-body {
+    flex: 1;
+    padding: 28px 32px;
+    overflow-y: auto;
+    max-height: calc(80vh - 70px);
+  }
+  .reader-body::-webkit-scrollbar { width: 6px; }
+  .reader-body::-webkit-scrollbar-thumb { background: rgba(139,26,26,0.3); border-radius: 3px; }
+  .reader-body::-webkit-scrollbar-track { background: transparent; }
+
+  .reader-text {
+    font-size: 15px;
+    line-height: 2;
+    color: var(--text-body);
+    white-space: pre-wrap;
+    font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+    letter-spacing: 0.3px;
+  }
+
+  .reader-loading {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px;
+    padding: 60px 0;
+    color: var(--text-muted);
+  }
+  .reader-spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border-soft);
+    border-top-color: var(--red-primary);
+    border-radius: 50%;
+    animation: readerSpin 0.8s linear infinite;
+  }
+  @keyframes readerSpin { to { transform: rotate(360deg); } }
+  .reader-loading-text { font-size: 13px; letter-spacing: 2px; }
+
+  .reader-error {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--red-primary);
+    font-size: 14px;
+  }
+  .reader-error-icon { font-size: 36px; margin-bottom: 12px; }
+
+  @media (max-width: 900px) {
+    .knowledge-shelf { gap: 12px; }
+    .shelf-book { width: 92px; height: 128px; padding: 12px 6px; }
+    .shelf-book .book-icon { font-size: 22px; }
+    .shelf-book .book-title { font-size: 13px; letter-spacing: 2px; }
+    .shelf-book .book-sub { font-size: 8px; }
+    .knowledge-label { font-size: 10px; letter-spacing: 2px; }
+    .knowledge-label::before,
+    .knowledge-label::after { width: 20px; }
+    .reader-body { padding: 20px 18px; }
+    .reader-text { font-size: 13px; }
+  }
 </style>
 </head>
 <body class="sidebar-collapsed">
@@ -1123,6 +1349,31 @@
         <h3>以 AI 解读赣南历史，让红色记忆薪火相传</h3>
       </div>
       <div class="top-bar-spacer"></div>
+    </div>
+
+    <!-- ============ 3D 数字书架 ============ -->
+    <div class="knowledge-section">
+      <div class="knowledge-label">红图 · 溯源 &nbsp;(RedPic Origin)</div>
+      <div class="knowledge-shelf" id="knowledgeShelf">
+        <div class="shelf-book heroes" data-file="gannan_generals.txt">
+          <div class="book-ribbon"></div>
+          <div class="book-icon">🎖️</div>
+          <div class="book-title">将帅档案</div>
+          <div class="book-sub">Generals Archive</div>
+        </div>
+        <div class="shelf-book sites" data-file="gannan_sites.txt">
+          <div class="book-ribbon"></div>
+          <div class="book-icon">🏛️</div>
+          <div class="book-title">旧址图鉴</div>
+          <div class="book-sub">Sites Atlas</div>
+        </div>
+        <div class="shelf-book stories" data-file="gannan_stories.txt">
+          <div class="book-ribbon"></div>
+          <div class="book-icon">📖</div>
+          <div class="book-title">历史纪要</div>
+          <div class="book-sub">Stories Record</div>
+        </div>
+      </div>
     </div>
 
     <!-- 小红军 -->
@@ -1317,6 +1568,27 @@
 <!-- Toast 容器 -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- ============ 史料阅读器 ============ -->
+<div class="reader-overlay" id="readerOverlay">
+  <div class="reader-modal">
+    <div class="reader-header">
+      <div class="reader-title">
+        <span id="readerIcon">📖</span>
+        <span id="readerTitle">史料阅读</span>
+      </div>
+      <button class="reader-close" id="readerClose" title="关闭">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="reader-body" id="readerBody">
+      <div class="reader-loading">
+        <div class="reader-spinner"></div>
+        <div class="reader-loading-text">正在翻阅史料...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   /* ================= 全局请求拦截器 ================= */
@@ -1419,11 +1691,11 @@
   const sidebarUserName = document.getElementById('sidebarUserName');
 
   /* ================= 常量 ================= */
-  const API_URL      = 'http://localhost:8080/api/v1/chat/unified';
-  const SESSIONS_API = 'http://localhost:8080/api/v1/chat/sessions';
-  const HISTORY_API  = 'http://localhost:8080/api/v1/chat/history';
-  const AUTH_INFO    = 'http://localhost:8080/api/auth/info';
-  const AUTH_PWD     = 'http://localhost:8080/api/auth/updatePassword';
+  const API_URL      = '/api/v1/chat/unified';
+  const SESSIONS_API = '/api/v1/chat/sessions';
+  const HISTORY_API  = '/api/v1/chat/history';
+  const AUTH_INFO    = '/api/auth/info';
+  const AUTH_PWD     = '/api/auth/updatePassword';
 
   let currentSessionId = localStorage.getItem('chatSessionId');
   if (!currentSessionId) {
@@ -1616,7 +1888,7 @@
   /* ================= 退出登录 ================= */
   logoutBtn.addEventListener('click', async () => {
     try {
-      await $api.post('http://localhost:8080/api/auth/logout');
+      await $api.post('/api/auth/logout');
     } catch (e) {}
     localStorage.removeItem('satoken');
     localStorage.removeItem('chatSessionId');
@@ -1723,7 +1995,7 @@
       const iconMap = ['📜', '🏛️', '🎭', '⚔️', '🗺️', '📖', '🌟', '🚩'];
       const icon = iconMap[i % iconMap.length];
       const title = s.title || '未命名会话';
-      const time = s.createTime || '';
+      const time = s.lastActiveTime || s.createTime || '';
       item.innerHTML =
         '<div class="session-item-icon">' + icon + '</div>' +
         '<div class="session-item-meta">' +
@@ -1946,7 +2218,8 @@
         removeCursor();
         bubble.appendChild(document.createTextNode('登录已失效，请重新登录。'));
         localStorage.removeItem('satoken');
-        setTimeout(() => { window.location.href = 'login.html'; }, 1200);
+        localStorage.removeItem('chatSessionId');
+        setTimeout(() => { window.location.replace('login.html'); }, 1200);
         return;
       }
       if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
@@ -1990,10 +2263,76 @@
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
 
+  /* ================= 数字书架 & 史料阅读器 ================= */
+  const KNOWLEDGE_API = '/api/knowledge/read';
+  const knowledgeShelf = document.getElementById('knowledgeShelf');
+  const readerOverlay  = document.getElementById('readerOverlay');
+  const readerClose    = document.getElementById('readerClose');
+  const readerBody     = document.getElementById('readerBody');
+  const readerTitle    = document.getElementById('readerTitle');
+  const readerIcon     = document.getElementById('readerIcon');
+
+  const shelfMeta = {
+    'gannan_generals.txt': { title: '将帅档案 · Generals Archive', icon: '🎖️' },
+    'gannan_sites.txt':    { title: '旧址图鉴 · Sites Atlas', icon: '🏛️' },
+    'gannan_stories.txt':  { title: '历史纪要 · Stories Record', icon: '📖' }
+  };
+
+  function openReader(fileName) {
+    const meta = shelfMeta[fileName] || { title: '史料阅读', icon: '📖' };
+    readerTitle.textContent = meta.title;
+    readerIcon.textContent  = meta.icon;
+
+    readerBody.innerHTML = '<div class="reader-loading"><div class="reader-spinner"></div><div class="reader-loading-text">正在翻阅史料...</div></div>';
+    readerOverlay.classList.add('show');
+
+    fetch(KNOWLEDGE_API + '?fileName=' + encodeURIComponent(fileName), {
+      method: 'GET',
+      headers: { 'satoken': localStorage.getItem('satoken') || '' }
+    })
+    .then(async res => {
+      const text = await res.text();
+      let data = text;
+      try { data = JSON.parse(text); } catch(e) {}
+
+      if (!res.ok) {
+        const msg = (data && data.message) || (data && data.msg) || '读取失败（' + res.status + '）';
+        throw new Error(msg);
+      }
+      const content = (data && typeof data === 'object') ? (data.data ?? data.content ?? '') : (data || '');
+      if (!content) {
+        readerBody.innerHTML = '<div class="reader-error"><div class="reader-error-icon">📭</div>暂无史料内容</div>';
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.className = 'reader-text';
+      pre.innerText = content;
+      readerBody.innerHTML = '';
+      readerBody.appendChild(pre);
+    })
+    .catch(err => {
+      readerBody.innerHTML = '<div class="reader-error"><div class="reader-error-icon">⚠️</div>' + escapeHtml(err.message || '加载失败') + '</div>';
+    });
+  }
+
+  function closeReader() { readerOverlay.classList.remove('show'); }
+
+  knowledgeShelf.addEventListener('click', (e) => {
+    const book = e.target.closest('.shelf-book');
+    if (!book) return;
+    const fileName = book.dataset.file;
+    if (fileName) openReader(fileName);
+  });
+  readerClose.addEventListener('click', closeReader);
+  readerOverlay.addEventListener('click', (e) => {
+    if (e.target === readerOverlay) closeReader();
+  });
+
   // ESC 关闭抽屉
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (settingsDrawer.classList.contains('show')) closeSettings();
+      if (readerOverlay.classList.contains('show')) closeReader();
+      else if (settingsDrawer.classList.contains('show')) closeSettings();
       else if (gameDialog.classList.contains('show')) closeDialog();
     }
   });

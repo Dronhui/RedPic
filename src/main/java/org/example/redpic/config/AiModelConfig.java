@@ -18,12 +18,12 @@ public class AiModelConfig {
                 .build();
     }
 
-    @Bean("ragChatClient")
-    public ChatClient ragChatClient(@Qualifier("deepSeekChatModel")ChatModel chatModel
-    ){
+    @Bean("rewriteChatClient")
+    public ChatClient rewriteChatClient(@Qualifier("deepSeekChatModel") ChatModel chatModel) {
         return ChatClient.builder(chatModel)
                 .build();
     }
+
     @Bean("visionChatClient")
     public ChatClient visionChatClient(@Qualifier("openAiChatModel")ChatModel chatModel
     ){

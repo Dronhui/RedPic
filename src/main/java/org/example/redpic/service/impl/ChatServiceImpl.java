@@ -1,5 +1,6 @@
 package org.example.redpic.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.example.redpic.common.Result;
 import org.example.redpic.entity.ChatHistory;
 import org.example.redpic.mapper.ChatHistoryMapper;
 import org.example.redpic.service.ChatService;
@@ -7,6 +8,9 @@ import org.example.redpic.service.RagSearchService;
 import org.example.redpic.service.VisionService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
@@ -15,24 +19,33 @@ import reactor.core.publisher.Flux;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatServiceImpl implements ChatService {
 
         private final ChatClient memoryChatClient;
         private final RagSearchService ragSearchService;
+        private final ChatClient rewriteChatClient;
         private final VisionService visionService;
+        private final MessageWindowChatMemory aiChatMemory;
         private final Map<String,String> chatPersonMap = new HashMap<>();
         private final Map<String,String> ragPersonMap = new HashMap<>();
         private final String rewritePrompt;
         private final ChatHistoryMapper chatHistoryMapper;
 
         public ChatServiceImpl(VisionService visionService, RagSearchService ragSearchService
-                , @Qualifier("memoryChatClient") ChatClient memoryChatClient, ChatHistoryMapper chatHistoryMapper) {
+                , @Qualifier("memoryChatClient") ChatClient memoryChatClient, ChatHistoryMapper chatHistoryMapper
+                , @Qualifier("rewriteChatClient") ChatClient rewriteChatClient
+                , @Qualifier("aiChatMemory") MessageWindowChatMemory aiChatMemory
+        ) {
+            this.aiChatMemory = aiChatMemory;
             this.memoryChatClient = memoryChatClient;
             this.ragSearchService = ragSearchService;
             this.visionService = visionService;
             this.chatHistoryMapper = chatHistoryMapper;
+            this.rewriteChatClient = rewriteChatClient;
+
             try {
                 chatPersonMap.put("default",new String(new ClassPathResource("prompts/default.st").getInputStream().readAllBytes(),"UTF-8"));
                 chatPersonMap.put("expert",new String(new ClassPathResource("prompts/expert.st").getInputStream().readAllBytes(),"UTF-8"));
@@ -45,34 +58,56 @@ public class ChatServiceImpl implements ChatService {
 
 
 
-
         }
+    private String readPrompt(String path) throws IOException {
+        return new String(new ClassPathResource(path).getInputStream().readAllBytes(), "UTF-8");
+    }
 
         @Override
         public Flux<String> chat(MultipartFile image, String question, boolean useRag, String type, String sessionId) {
             String finalSessionId = (sessionId==null||sessionId.isBlank())? UUID.randomUUID().toString():sessionId;
             String currentUserId = cn.dev33.satoken.stp.StpUtil.getLoginIdAsString();
+            String rawQuestion = (question == null) ? "" : question.trim();
+            String imageEntity = null;
             if(image!=null&&!image.isEmpty()){
-                String entity = visionService.analyzeImage(image,"请识别主体");
-                memoryChatClient.prompt().user("用户上传了图片，图片中核心主体是："+entity)
-                        .advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
-                        .call().content();
-                System.out.println("用户上传了图片，图片中核心主体是："+entity);
+                imageEntity = visionService.analyzeImage(image,"请识别主体");
+                System.out.println("用户上传了图片，图片中核心主体是："+imageEntity);
             }
+            final String finalQuestion ;
+            if(rawQuestion.isEmpty()&&imageEntity!=null){
+                finalQuestion = "请根据图片内容，给我讲讲它的历史背景";
+            }
+            else{
+                finalQuestion = rawQuestion;
+            }
+             System.out.println("用户问题："+finalQuestion);
+            String finalQuestionRewrite ;
+            if(imageEntity==null){
+                finalQuestionRewrite = finalQuestion;
+            }
+            else{
+                finalQuestionRewrite = "【提示：用户当前上传的图片主体是：" + imageEntity + "】 用户原问题：" + finalQuestion;
+            }
+             System.out.println("用户问题重写后："+finalQuestionRewrite);
 
             String finalSystemPrompt;
             if(useRag){
-                String rewrite = rewritePrompt.formatted(question);
-                String rewriteQuestion = memoryChatClient.prompt().user(rewrite)
-                        .advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
-                        .call().content();
+                String historyText = buildRecentHistory(finalSessionId, 3);
+                String rewrite = rewritePrompt
+                        .replace("{history}",historyText)
+                        .replace("{question}",finalQuestionRewrite);
+                String rewriteQuestion = rewriteChatClient.prompt().user(rewrite)
+                         .call().content();
+                if(rewriteQuestion==null||rewriteQuestion.isEmpty()){
+                     rewriteQuestion=finalQuestionRewrite;
+                }
                 System.out.println("用户问题重写后："+rewriteQuestion);
                 String docs = ragSearchService.searchDocuments(rewriteQuestion);
                 if(docs==null||docs.isEmpty()){
                     docs = "此问题本地知识库未收入";
                 }
                 String pathPrompt = ragPersonMap.getOrDefault(type, ragPersonMap.get("default"));
-                finalSystemPrompt = pathPrompt.formatted(docs);
+                finalSystemPrompt = pathPrompt.replace("{docs}",docs);
 
             }
             else{
@@ -83,18 +118,19 @@ public class ChatServiceImpl implements ChatService {
             StringBuilder fullAiResponse = new StringBuilder();
 
              return memoryChatClient.prompt().system(finalSystemPrompt).
-                    user(question).advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
+                    user(finalQuestion).advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
                     .stream().content().map(a->{
                         fullAiResponse.append(a);
-                        return a.replace("\n","").replace("\r","")
-                                .replace("\t","").trim();
+                        return a.replace("\r","")
+                                .replace("\t","");
                     }).doOnComplete(()->{
                          try {
+                             String finalAnswer = fullAiResponse.toString().trim();
                              ChatHistory chatHistory = new ChatHistory();
                              chatHistory.setUserId(currentUserId);
                              chatHistory.setSessionId(finalSessionId);
-                             chatHistory.setUserMessage(question);
-                             chatHistory.setAiMessage(fullAiResponse.toString());
+                             chatHistory.setUserMessage(finalQuestion);
+                             chatHistory.setAiMessage(finalAnswer);
                              chatHistory.setCreateTime(LocalDateTime.now());
                              chatHistoryMapper.insert(chatHistory);
                              System.out.println("聊天记录成功存入数据库");
@@ -104,6 +140,21 @@ public class ChatServiceImpl implements ChatService {
                      });
 
         }
+
+        private String buildRecentHistory(String sessionId, int rounds) {
+            List<Message> history = aiChatMemory.get(sessionId);   // get 只读，不触发写回
+            if (history == null || history.isEmpty()) {
+            return "（无）";
+         }
+            int from = Math.max(0, history.size() - rounds * 2);
+            return history.subList(from, history.size()).stream()
+                .map(m -> {
+                    String role = (m.getMessageType() == MessageType.USER) ? "用户" : "助手";
+                    return role + "：" + m.getText();
+                })
+                .collect(Collectors.joining("\n"));
+        }
+
 
     @Override
     public List<Map<String, String>> getSessionHistory(String sessionId) {
@@ -130,6 +181,38 @@ public class ChatServiceImpl implements ChatService {
            }
            return historyList;
 
+
+    }
+
+    @Override
+    public List<Map<String, Object>> getUserSessions() {
+        String userId = cn.dev33.satoken.stp.StpUtil.getLoginIdAsString();
+        List<ChatHistory> chatHistoriesList = chatHistoryMapper.selectList(new QueryWrapper<ChatHistory>().eq("user_id", userId)
+                .orderByAsc("create_time")
+        );
+        Map<String, Map<String, Object>> sessionMap = new LinkedHashMap<>();
+        for (ChatHistory chatHistory : chatHistoriesList) {
+            if (!sessionMap.containsKey(chatHistory.getSessionId())) {
+                Map<String, Object> sessioninfo = new HashMap<>();
+                sessioninfo.put("sessionId", chatHistory.getSessionId());
+                String title = chatHistory.getUserMessage();
+                sessioninfo.put("title", title.length() >= 15 ? title.substring(0, 15) + "..." : title);
+                sessioninfo.put("lastActiveTime", chatHistory.getCreateTime());
+                sessionMap.put(chatHistory.getSessionId(), sessioninfo);
+
+            }else {
+                Map<String, Object> sessioninfo = sessionMap.get(chatHistory.getSessionId());
+                sessioninfo.put("lastActiveTime", chatHistory.getCreateTime());
+            }
+            List<Map<String, Object>> resultList = new ArrayList<>(sessionMap.values());
+            resultList.sort((a, b) -> {
+                LocalDateTime timeA = (LocalDateTime) a.get("lastActiveTime");
+                LocalDateTime timeB = (LocalDateTime) b.get("lastActiveTime");
+                return timeB.compareTo(timeA); // 倒序：最新的在前
+            });
+
+        }
+        return  new ArrayList<>(sessionMap.values());
 
     }
 }

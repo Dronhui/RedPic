@@ -10,4 +10,5 @@ public interface ChatService {
     Flux<String> chat(MultipartFile image, String question, boolean useRag, String type, String sessionId);
 
     List<Map<String, String>> getSessionHistory(String sessionId);
+    List<Map<String, Object>> getUserSessions();
 }

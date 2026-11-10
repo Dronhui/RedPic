@@ -307,7 +307,7 @@
       <button class="tab-btn" data-tab="register">注 册</button>
     </div>
 
-    <form class="form-panel active" id="loginForm" autocomplete="off">
+    <form class="form-panel active" id="loginForm" autocomplete="off" onsubmit="return false;">
       <div class="field">
         <input type="text" id="loginUser" placeholder="请输入用户名" required />
         <span class="icon">👤</span>
@@ -316,11 +316,11 @@
         <input type="password" id="loginPass" placeholder="请输入密码" required />
         <span class="icon">🔒</span>
       </div>
-      <button type="submit" class="submit-btn" id="loginSubmit"><span>登 录</span></button>
+      <button type="button" class="submit-btn" id="loginSubmit"><span>登 录</span></button>
       <div class="footer-tip">革命尚未成功，同志仍需努力</div>
     </form>
 
-    <form class="form-panel" id="registerForm" autocomplete="off">
+    <form class="form-panel" id="registerForm" autocomplete="off" onsubmit="return false;">
       <div class="field">
         <input type="text" id="regUser" placeholder="请输入用户名" required />
         <span class="icon">👤</span>
@@ -333,7 +333,7 @@
         <input type="password" id="regPass2" placeholder="请再次输入密码" required />
         <span class="icon">✔️</span>
       </div>
-      <button type="submit" class="submit-btn" id="regSubmit"><span>注 册</span></button>
+      <button type="button" class="submit-btn" id="regSubmit"><span>注 册</span></button>
       <div class="footer-tip">加入我们，传承红色基因</div>
     </form>
   </div>
@@ -342,7 +342,7 @@
 
 <script>
 (function(){
-  const API_BASE = 'http://localhost:8080/api/auth';
+  const API_BASE = '/api/auth';
 
   /* ================= 全局请求拦截器 ================= */
   function handleForceLogout(msg) {
@@ -368,7 +368,10 @@
         throw new Error(msg);
       }
 
-      const isUnauthorized = json.code === 401 || (res && res.status === 401);
+      const isSuccess = (res && res.status === 200) && (json.message === 'success' || json.code === 200 || json.code === 401);
+      if (isSuccess) return json.data;
+
+      const isUnauthorized = (res && res.status === 401) || (json.code === 401 && json.message !== 'success');
       if (isUnauthorized) { handleForceLogout(json.message); throw new Error('UNAUTHORIZED'); }
 
       if (json.code === 400 || json.code === 500) {
@@ -376,10 +379,6 @@
         window.dispatchEvent(new CustomEvent('api-error', { detail: msg }));
         throw new Error(msg);
       }
-
-      if (json.code === 200) return json.data;
-
-      if (res && res.status === 200 && json.code == null) return json.data !== undefined ? json.data : json;
 
       const msg = json.message || ('请求失败（HTTP ' + (res && res.status) + '）');
       window.dispatchEvent(new CustomEvent('api-error', { detail: msg }));
@@ -477,36 +476,47 @@
   window.addEventListener('api-error', (e) => toast(e.detail, 'error'));
 
   // 登录
-  const loginForm = document.getElementById('loginForm');
   const loginSubmit = document.getElementById('loginSubmit');
-  loginForm.addEventListener('submit', async function(e){
-    e.preventDefault();
-    const username = document.getElementById('loginUser').value.trim();
-    const password = document.getElementById('loginPass').value;
+  const loginUser = document.getElementById('loginUser');
+  const loginPass = document.getElementById('loginPass');
+  async function doLogin(){
+    const username = loginUser.value.trim();
+    const password = loginPass.value;
     if (!username || !password) { toast('请填写用户名和密码', 'error'); return; }
 
     setBtnLoading(loginSubmit, true, '登 录 中...');
     try {
+      console.log('[Login] 发送请求到', API_BASE + '/login', { username, password });
       const raw = await $api.postForm(API_BASE + '/login', { username, password });
+      console.log('[Login] 原始响应:', raw);
       const token = sanitizeToken(raw);
+      console.log('[Login] 清洗后 token:', token);
       localStorage.setItem('satoken', token);
       toast('登录成功，欢迎同志！', 'success');
-      setTimeout(() => window.location.replace('index.html'), 700);
+      setTimeout(() => {
+        console.log('[Login] 即将跳转到 index.html');
+        window.location.replace('index.html');
+      }, 700);
     } catch (err) {
-      // 拦截器已统一弹红色 toast
+      console.error('[Login] 失败:', err);
+      toast(err.message || '登录失败', 'error');
     } finally {
       setBtnLoading(loginSubmit, false, '登 录');
     }
-  });
+  }
+  loginSubmit.addEventListener('click', doLogin);
+  loginPass.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  loginUser.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
   // 注册
-  const registerForm = document.getElementById('registerForm');
   const regSubmit = document.getElementById('regSubmit');
-  registerForm.addEventListener('submit', async function(e){
-    e.preventDefault();
-    const username = document.getElementById('regUser').value.trim();
-    const password = document.getElementById('regPass').value;
-    const password2 = document.getElementById('regPass2').value;
+  const regUser = document.getElementById('regUser');
+  const regPass = document.getElementById('regPass');
+  const regPass2 = document.getElementById('regPass2');
+  async function doRegister(){
+    const username = regUser.value.trim();
+    const password = regPass.value;
+    const password2 = regPass2.value;
 
     if (!username || !password) { toast('请填写用户名和密码', 'error'); return; }
     if (password !== password2) { toast('两次输入的密码不一致', 'error'); return; }
@@ -518,15 +528,18 @@
       toast(data || '注册成功，请登录', 'success');
       setTimeout(() => {
         document.querySelector('.tab-btn[data-tab="login"]').click();
-        document.getElementById('loginUser').value = username;
-        document.getElementById('loginPass').focus();
+        loginUser.value = username;
+        loginPass.focus();
       }, 600);
     } catch (err) {
-      // 拦截器已统一弹红色 toast
     } finally {
       setBtnLoading(regSubmit, false, '注 册');
     }
-  });
+  }
+  regSubmit.addEventListener('click', doRegister);
+  regPass2.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+  regPass.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+  regUser.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
 
   // 若本地有 token，验证有效则直接跳转主界面
   const existingToken = (localStorage.getItem('satoken') || '').trim();
