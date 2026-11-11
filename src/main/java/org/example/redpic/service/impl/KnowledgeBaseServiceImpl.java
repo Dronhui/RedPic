@@ -11,6 +11,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -52,17 +53,24 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             else {
                 throw new RuntimeException("文件名格式错误，请确保文件名包含 generals/sites/stories！");
             }
-            var resource = new InputStreamResource(file.getInputStream());
-            TextReader reader = new TextReader(resource);
-            List<Document> documents = reader.get();
-            TokenTextSplitter splitter = new TokenTextSplitter();
-            List<Document> splitDocuments = splitter.apply(documents);
-            typeVectorStore.add(splitDocuments);
+            String fullText = new String(file.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+// 2. 按左括号 "【" 劈开
+            String[] sections = fullText.split("=+\\s*【");
+
+            List<Document> documents = new ArrayList<>();
+// 3. 从 1 开始循环，把名字拼回去作为独立的一块
+            for (int i = 1; i < sections.length; i++) {
+                documents.add(new Document("【" + sections[i].trim()));
+            }
+
+// 4. 直接入库
+            typeVectorStore.add(documents);
             if(typeVectorStore instanceof SimpleVectorStore simpleVectorStore) {
                 simpleVectorStore.save(new File("vector_"+category+".json"));
                 System.out.println("====== ✅ 成功保存到本地 vector_" + category + ".json ======");
             }
-            System.out.println("====== ✅ 成功向 [" + category + "] 知识库导入了 " + splitDocuments.size() + " 个文本块！ ======");
+            System.out.println("====== ✅ 成功向 [" + category + "] 知识库导入了 " + documents.size() + " 个文本块！ ======");
         } catch (Exception e) {
             throw new RuntimeException("文件导入失败：" + e.getMessage(), e);
         }

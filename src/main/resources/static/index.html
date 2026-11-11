@@ -984,24 +984,30 @@
 
   /* ============ Toast ============ */
   .toast-container {
-    position: fixed; top: 20px; right: 20px; z-index: 100;
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 100;
     display: flex; flex-direction: column; gap: 10px;
+    align-items: center;
+    pointer-events: none;
   }
   .toast {
-    padding: 12px 20px;
+    padding: 14px 26px;
     border-radius: 12px;
     background: #fff;
     border-left: 4px solid var(--red-primary);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    font-size: 13.5px; font-weight: 600; color: var(--text-dark);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    font-size: 14px; font-weight: 700; color: var(--text-dark);
     animation: toastIn 0.35s var(--ease-out);
     display: flex; align-items: center; gap: 8px;
-    min-width: 220px;
+    min-width: 260px;
+    max-width: 420px;
+    text-align: center;
+    pointer-events: auto;
   }
   .toast.success { border-left-color: #27ae60; }
-  .toast.error { border-left-color: var(--red-light); }
+  .toast.error { border-left-color: var(--red-light); background: #fff5f5; }
   .toast.info { border-left-color: #3498db; }
-  @keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes toastIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
 
   /* ============ 顶部 hamburger（desktop + mobile 都可见） ============ */
   .mobile-toggle {
@@ -2140,6 +2146,18 @@
   async function parseSSE(reader, onData){
     const decoder = new TextDecoder('utf-8', { stream: true });
     let buffer = '';
+    const checkJsonError = (text) => {
+      try {
+        const j = JSON.parse(text);
+        if (j && typeof j === 'object' && j.code !== undefined && j.code !== 200) {
+          const e = new Error(j.message || j.msg || '请求失败');
+          e.__bizError = true;
+          throw e;
+        }
+      } catch (err) {
+        if (err.__bizError) throw err;
+      }
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -2159,7 +2177,7 @@
         }
         if (dataParts.length > 0) {
           const text = dataParts.join('\n');
-          if (text.length > 0) onData(text);
+          if (text.length > 0) { checkJsonError(text); onData(text); }
         }
       }
     }
@@ -2175,7 +2193,7 @@
       }
       if (dataParts.length > 0) {
         const text = dataParts.join('\n');
-        if (text.length > 0) onData(text);
+        if (text.length > 0) { checkJsonError(text); onData(text); }
       }
     }
   }
@@ -2190,10 +2208,9 @@
     let userImageUrl = null;
     if (selectedFile) userImageUrl = URL.createObjectURL(selectedFile);
     appendUserMessage(question, userImageUrl);
-    textInput.value = '';
 
     const fd = new FormData();
-    fd.append('question', question || '请讲解一下这个遗址的历史背景');
+    fd.append('question', question);
     fd.append('sessionId', currentSessionId);
     fd.append('type', roleSelect.value);
     fd.append('useRag', String(ragToggle.checked));
@@ -2205,6 +2222,8 @@
     const bubble = createBotBubble();
     currentBotBubble = bubble;
     appendThinking(bubble);
+
+    let successSent = false;
 
     try {
       const res = await fetch(API_URL, {
@@ -2222,6 +2241,19 @@
         setTimeout(() => { window.location.replace('login.html'); }, 1200);
         return;
       }
+
+      const contentType = res.headers.get('content-type') || '';
+
+      if (contentType.includes('application/json')) {
+        const json = await res.json();
+        removeCursor();
+        bubble.remove();
+        currentBotBubble = null;
+        const msg = json.message || json.msg || '请求失败';
+        toast(msg, 'error');
+        return;
+      }
+
       if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
       const reader = res.body.getReader();
@@ -2240,17 +2272,24 @@
       isStreaming = false;
       currentBotBubble = null;
       currentAbortCtrl = null;
+      successSent = true;
+      textInput.value = '';
 
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.error('[SSE Error]', err);
       removeCursor();
-      bubble.appendChild(document.createTextNode('（连接出错：' + (err.message || '未知错误') + '）'));
+      if (err.__bizError) {
+        bubble.remove();
+        toast(err.message || '请求失败', 'error');
+      } else {
+        console.error('[SSE Error]', err);
+        bubble.appendChild(document.createTextNode('（连接出错：' + (err.message || '未知错误') + '）'));
+      }
       isStreaming = false;
       currentBotBubble = null;
       currentAbortCtrl = null;
     } finally {
-      clearImage();
+      if (successSent) clearImage();
       textInput.focus();
       if (currentSessionId) {
         setTimeout(() => loadSessions(true), 600);

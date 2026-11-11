@@ -33,3 +33,5 @@ build/
 .vscode/
 # 敏感配置：真实密钥不提交到公开仓库
 src/main/resources/application.yml
+# 本地向量库快照（数据产物，体积大，不入库）
+vector_*.json
