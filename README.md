@@ -2,6 +2,12 @@
 
 > **一句话定位**：以老照片/革命遗址图像识别为入口、RAG 史料检索为底座、大模型流式生成为输出的赣南红色文化智能导览系统。工程上基于 **Java 17 + Spring Boot 3.3.5 + Spring AI 1.0.0**，实现三模型混合编排、多轮记忆隔离、三级 JSON 解析降级、动态配额检索、防幻觉拦截等高可用能力。
 
+## 🎯 项目背景：让大模型真正落地基层私域
+
+通用大模型依赖互联网海量泛化数据训练，在严肃历史场景下存在三大硬伤：**易产生幻觉**（编造职务、时间、机构名称）、**无法溯源**（回答有据可查但无据可依）、**数据不可控**（互联网垃圾信息与权威史料混杂，模型可能采信错误信息）。
+
+本项目致力于将 AI 真正落地到本地垂直领域。通过**本地私有官方史料库的 RAG 物理隔离**，让大模型摆脱互联网垃圾信息的干扰——检索只走本地三路向量库（人物 / 遗址 / 故事），Prompt 强约束"只能用参考资料作答"，史料未命中时强制拒答。在严肃历史场景下做到**字字有据、精准溯源**，实现"大模型 + 本地私域知识库"的可信落地范式。
+
 ---
 
 ## ✨ 核心特性速览
@@ -9,7 +15,7 @@
 | 能力维度 | 技术实现 |
 | :---: | :--- |
 | 🧠 三模型混合编排 | 文本生成 **DeepSeek** / 向量嵌入 **智谱 Embedding-3** / 视觉识别 **阿里千问 Qwen3-VL-Plus**，`@Qualifier` 工厂隔离，Provider 热插拔 |
-| 🌊 真·SSE 流式输出 | Spring AI `.stream().content()` + `Flux<String>` + `TEXT_EVENT_STREAM`，首字延迟毫秒级，支持前端 `AbortController` 打断 |
+| 🌊 SSE 流式输出 | Spring AI `.stream().content()` + `Flux<String>` + `TEXT_EVENT_STREAM`，首字延迟毫秒级，支持前端 `AbortController` 打断 |
 | 🧩 大一统八维路由 | 纯文本 / 多模态识图 / RAG 查库 × 专家·普通人设 × 记忆开关，统一收敛到 `/api/v1/chat/unified` |
 | 🛡️ 三层防幻觉铁律 | 检索层阈值过滤 + Prompt 层"只能用史料"红线 + 输出层正则清洗兜底 |
 | 💾 多轮记忆隔离 | Redis 持久化 `ChatMemoryRepository` + `MessageWindowChatMemory`(maxMessages=10) + rewrite 链路零记忆污染 |
@@ -20,7 +26,7 @@
 ## 🖥️ 产品界面
 
 <div align="center">
-<img src="docs/02_main_ui.png" alt="3D数字书架" width="700" />
+<img src="docs/ui/02_main_ui.png" alt="3D数字书架" width="700" />
 <br><b>图 1 · 3D 数字书架主界面 —— 以复古红色主题承载交互入口</b>
 </div>
 
@@ -30,7 +36,7 @@
 
 ```mermaid
 graph TD
-    Client[前端 · 云朵机器人<br/>流式接收/可打断/可上传图片] -->|POST /api/v1/chat/unified| Controller[ChatController<br/>onErrorResume 出口兜底]
+    Client[前端 · 小红军<br/>流式接收/可打断/可上传图片] -->|POST /api/v1/chat/unified| Controller[ChatController<br/>onErrorResume 出口兜底]
 
     Controller --> Service[ChatServiceImpl<br/>大一统编排]
 
@@ -95,7 +101,7 @@ return dtos.stream().map(dto -> {
 | `memoryChatClient` | ✅ 挂载 `MessageChatMemoryAdvisor(aiChatMemory)` | 主对话生成，自动读写 Redis 记忆 |
 | `rewriteChatClient` | ❌ 纯裸 `ChatClient`，无任何 Advisor | 问题重写，零记忆副作用 |
 
-rewrite 所需的历史上下文**不走框架记忆**，而是通过 `buldRecentHistory(sessionId, 3)` 手动从 `aiChatMemory.get()` 只读拉取最近 3 轮，拼成纯文本 `{history}` 占位符注入 rewrite prompt：
+rewrite 所需的历史上下文**不走框架记忆**，而是通过 `buildRecentHistory(sessionId, 3)` 手动从 `aiChatMemory.get()` 只读拉取最近 3 轮，拼成纯文本 `{history}` 占位符注入 rewrite prompt：
 
 ```java
 private String buildRecentHistory(String sessionId, int rounds) {
@@ -108,14 +114,11 @@ private String buildRecentHistory(String sessionId, int rounds) {
 ```
 
 **收益**：
-- **主对话记忆 100% 纯净**：rewrite 的 system / user / assistant 消息全部不落库，主对话上下文只含真实问答；
+- **主对话记忆零污染**：rewrite 的 system / user / assistant 消息全部不落库，主对话上下文只含真实问答；
 - **职责单一**：`rewriteChatClient` 是无状态工具人，`memoryChatClient` 只管主对话，符合单一职责原则；
 - **可观测性提升**：日志中可清晰区分"重写请求"与"主对话请求"，排查上下文污染问题成本骤降。
 
-<div align="center">
-<img src="docs/03_session_history.png" alt="多轮记忆隔离" width="700" />
-<br><b>图 2 · 多轮记忆隔离 —— 会话级 Redis Key 隔离，主对话上下文不被重写链路污染</b>
-</div>
+> 🧠 **多轮记忆与指代消解实测**（无记忆 rewrite 链路 + Redis 记忆隔离）👉 [查看多轮记忆与指代消解](docs/memory/memory.md)
 
 ---
 
@@ -166,28 +169,28 @@ for (int i = 1; i < sections.length; i++) {
 }
 ```
 
-**痛点② —— Lost in the Middle**：大模型对长上下文中间位置的信息注意力会显著衰减（"迷失在中间"）。如果 5 条检索结果里 4 条是人物、1 条是遗址，模型很可能忽略那条遗址信息。
+**痛点② —— Lost in the Middle**：大模型对长上下文中间位置的信息注意力会显著衰减（"迷失在中间"）。如果 6 条检索结果里 4 条是人物、1 条是遗址、1 条是故事，模型很可能忽略后两条信息。
 
-**方案② —— 意图驱动动态配额**：在 `RagSearchServiceImpl` 中，根据大模型识别的意图标签（heroes / sites / stories）动态分配 `topK` 配额：
+**方案② —— 意图驱动动态配额**：在 `RagSearchServiceImpl` 中，`totalTopK = 6`，根据大模型识别的意图标签（heroes / sites / stories）动态分配配额：
 
 | 命中意图数 | 配额策略 | 示例 |
 | :---: | :--- | :--- |
-| 0 或 3（全命中） | 平均分配 + 余数前置 | `3:1:1`（总 topK=5） |
-| 1（单意图） | 命中库拿 3，其余各 1 | heroes 命中 → `3:1:1` |
-| 2（双意图） | 命中库平分 4，未命中拿 1 | heroes+sites → `2:2:1` |
+| 0 或 3（全命中） | 三库均分 | `2:2:2`（总 topK=6） |
+| 1（单意图） | 命中库拿 4，其余各 1 | heroes 命中 → `4:1:1` |
+| 2（双意图） | 命中库平分 5，未命中拿 1 | heroes+stories → `3:1:2` |
 
 ```java
 if (hitCount == 0 || hitCount == 3) {
-    int average = totalTopK / 3;          // 1
+    int average = totalTopK / 3;          // 2
     qHeroes = average + (remainder > 0 ? 1 : 0);   // 2
     qSites  = average + (remainder > 1 ? 1 : 0);   // 2
-    qStories = average;                    // 1
+    qStories = average;                    // 2
 } else if (hitCount == 1) {
-    int maxTopk = totalTopK - 2;          // 命中库拿 3
+    int maxTopk = totalTopK - 2;          // 命中库拿 4
     ...
 } else if (hitCount == 2) {
     int remainderTopk = totalTopK - 1;    // 未命中库保底 1
-    int arg = remainderTopk / 2;          // 命中库平分 4
+    int arg = remainderTopk / 2;          // 命中库平分 5
     ...
 }
 ```
@@ -195,19 +198,11 @@ if (hitCount == 0 || hitCount == 3) {
 当 LLM 意图降级（fallback=true）时，自动切换到**关键词匹配路由**——用预定义的人物/遗址/故事关键词列表对 query 做 `anyMatch`，确保降级后仍有合理的配额分布。
 
 **收益**：
-- **语义完整度 100%**：每个人物/遗址/故事作为独立 Document，向量嵌入语义不被截断；
+- **语义完整保留**：每个人物/遗址/故事作为独立 Document，向量嵌入语义不被截断；
 - **对抗中间迷失**：动态配额确保每个命中意图的库至少拿到 2 条以上结果，未命中库也保底 1 条防止漏召回；
 - **降级可用**：三级 JSON 解析降级后，关键词路由接力，检索质量不崩盘。
 
-<div align="center">
-<img src="docs/07_single_intent_log.png" alt="单意图路由日志" width="700" />
-<br><b>图 3 · 单意图路由日志 —— 命中 heroes，配额分配 3:1:1</b>
-</div>
-
-<div align="center">
-<img src="docs/08_multi_intent_log.png" alt="多意图路由日志" width="700" />
-<br><b>图 4 · 多意图路由日志 —— 命中 heroes+sites+stories，配额分配 3:1:1</b>
-</div>
+> 🛡️ **RAG 动态路由实测日志**（单意图 4:1:1 / 双意图 3:1:2 / 多意图 2:2:2）👉 [查看 RAG 动态路由测试](docs/logs/logs.md)
 
 ---
 
@@ -249,20 +244,7 @@ if (imageEntity.contains("未知") || imageEntity.contains("未识别") || image
 - **史实零编造**：检索阈值 + Prompt 红线 + 空结果兜底三重防线，模型在无史料时必须拒答，绝不东拼西凑；
 - **错误实体零注入**：视觉识别失败时硬拦截，避免"张冠李戴"的错误主体污染后续 RAG 检索与生成。
 
-<div align="center">
-<img src="docs/06_anti_hallucination.png" alt="防幻觉拒答" width="700" />
-<br><b>图 5 · 防幻觉拒答 —— 知识库未命中时模型严格输出兜底话术，绝不编造</b>
-</div>
-
-<div align="center">
-<img src="docs/04_rag_traceability.png" alt="精准溯源" width="700" />
-<br><b>图 6 · RAG 精准溯源 —— 回答末尾附史料出处，可查证</b>
-</div>
-
-<div align="center">
-<img src="docs/05_source_document.png" alt="官方原文查证" width="700" />
-<br><b>图 7 · 官方原文查证 —— 点击可跳转史料原文，杜绝杜撰</b>
-</div>
+> 🛡️ **防幻觉拒答 + RAG 精准溯源 + 官方原文查证** 👉 [查看前端交互与多模态展示](docs/ui/ui.md)
 
 ---
 
@@ -376,10 +358,7 @@ resultList.sort((a, b) -> timeB.compareTo(timeA));
 | 登录态下发 | `StpUtil.login(userId)` → `StpUtil.getTokenValue()` 返回前端 |
 | 改密即登出 | 修改密码后 `StpUtil.logout(userId)`，强制重新登录 |
 
-<div align="center">
-<img src="docs/01_login.png" alt="Sa-Token鉴权" width="700" />
-<br><b>图 8 · Sa-Token 鉴权 —— 登录注册与 Token 下发全流程</b>
-</div>
+> 🔐 **接口安全测试**（未登录拦截 / Token 获取 / 流式放行全流程）👉 [查看接口安全测试](docs/api/api.md)
 
 ---
 
@@ -463,8 +442,8 @@ spring:
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-name/redpic.git
-cd redpic
+git clone https://github.com/Dronhui/RedPic.git
+cd RedPic
 
 # 启动（默认 8080 端口）
 mvn spring-boot:run

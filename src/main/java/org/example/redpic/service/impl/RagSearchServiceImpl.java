@@ -27,7 +27,7 @@ public class RagSearchServiceImpl implements RagSearchService {
 
     @Override
     public String searchDocuments(String query, List<String> intentList, boolean fallback) {
-        int totalTopK = 5;
+        int totalTopK = 6;
         System.out.println("\n=================== 🚦 检索路由日志 ===================");
         System.out.println("重写后检索词：" + query + " | 大模型意图：" + intentList + " | 是否降级：" + fallback);
 
