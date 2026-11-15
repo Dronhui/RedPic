@@ -6,7 +6,7 @@
 
 通用大模型依赖互联网海量泛化数据训练，在严肃历史场景下存在三大硬伤：**易产生幻觉**（编造职务、时间、机构名称）、**无法溯源**（回答有据可查但无据可依）、**数据不可控**（互联网垃圾信息与权威史料混杂，模型可能采信错误信息）。
 
-本项目致力于将 AI 真正落地到本地垂直领域。通过**本地私有官方史料库的 RAG 物理隔离**，让大模型摆脱互联网垃圾信息的干扰——检索只走本地三路向量库（人物 / 遗址 / 故事），Prompt 强约束"只能用参考资料作答"，史料未命中时强制拒答。在严肃历史场景下做到**字字有据、精准溯源**，实现"大模型 + 本地私域知识库"的可信落地范式。
+本项目致力于将 AI 落地到本地垂直领域。通过**本地私有官方史料库的 RAG 物理隔离**，让大模型摆脱互联网垃圾信息的干扰——检索只走本地三路向量库（人物 / 遗址 / 故事），Prompt 约束"只能用参考资料作答"，史料未命中时引导拒答。在严肃历史场景下，通过物理隔离（0.48 阈值）与 Prompt 约束，极大降低了未收录实体的幻觉风险，保障回答边界，探索"大模型 + 本地私域知识库"的落地范式。
 
 ---
 
@@ -16,9 +16,9 @@
 | :---: | :--- |
 | 🧠 三模型混合编排 | 文本生成 **DeepSeek** / 向量嵌入 **智谱 Embedding-3** / 视觉识别 **阿里千问 Qwen3-VL-Plus**，`@Qualifier` 工厂隔离，Provider 热插拔 |
 | 🌊 SSE 流式输出 | Spring AI `.stream().content()` + `Flux<String>` + `TEXT_EVENT_STREAM`，首字延迟毫秒级，支持前端 `AbortController` 打断 |
-| 🧩 大一统八维路由 | 纯文本 / 多模态识图 / RAG 查库 × 专家·普通人设 × 记忆开关，统一收敛到 `/api/v1/chat/unified` |
-| 🛡️ 三层防幻觉铁律 | 检索层阈值过滤 + Prompt 层"只能用史料"红线 + 输出层正则清洗兜底 |
-| 💾 多轮记忆隔离 | Redis 持久化 `ChatMemoryRepository` + `MessageWindowChatMemory`(maxMessages=10) + rewrite 链路零记忆污染 |
+| 🧩 大一统八维路由 | 传图(是/否) × RAG 查库(是/否) × 人设(default/expert) = 8 种组合，统一收敛到 `/api/v1/chat/unified`，多模态识图走"视觉提取实体→文本 RAG"提纯链路 |
+| 🛡️ 三层防幻觉约束 | 检索层阈值过滤 + Prompt 层"只能用史料"约束 + 输出层空结果兜底 |
+| 💾 多轮记忆隔离 | Redis 持久化 `ChatMemoryRepository` + `MessageWindowChatMemory`(maxMessages=10) + rewrite 链路无记忆污染 |
 | 🔐 Sa-Token 鉴权 | 拦截器白名单 + `@SaCheckLogin` 注解双保险，BCrypt 密码哈希，登录态 Token 下发 |
 
 ---
@@ -53,17 +53,21 @@ graph TD
     Router -->|No| LLM
 
     LLM -->|Flux SSE 流式| Client
-    LLM -->|doOnComplete 异步落库| MySQL[(chat_history)]
+    LLM -->|doOnComplete 回调落库| MySQL[(chat_history)]
 
     Memory[(Redis 记忆仓库<br/>redpic:chat:memory:)] <-->|MessageWindowChatMemory| LLM
     Rewrite -.手动拼历史.-> Memory
 ```
 
+> **架构边界说明**
+> - **多模态接入方式**：当前方案为"多模态提纯接入"——视觉模型（千问 Qwen3-VL）先对图片做主体识别，提取出人物/遗址等实体名称，再将实体作为前缀拼入用户问题，后续走纯文本 RAG 检索与生成链路；并非直接对图像做向量检索。
+> - **溯源展示边界**：检索阶段的相似度分数（含 0.48 阈值过滤结果）在**后端控制台日志**中输出，用于全链路可观测性与调参；前端主要展示大模型基于检索源数据生成的回答，以及对应的史料文本出处（原文片段），不直接展示相似度分数。
+
 ---
 
-## 🔥 五大硬核技术亮点
+## 🔥 五大技术设计要点
 
-### 亮点一 · 极致的序列化防御：Spring AI 多态反序列化的"黑洞"与手写 DTO 突围
+### 亮点一 · 序列化防御：Spring AI 多态反序列化的"黑洞"与手写 DTO 突围
 
 **痛点**：Spring AI 的 `ChatMemory` 抽象将 `Message` 设计为多态接口族（`UserMessage` / `AssistantMessage` / `SystemMessage` …）。直接把 `List<Message>` 丢进 Jackson 序列化进 Redis 时，会写入大量框架私有字段（如 `metadata`、`messageType`、`toolCalls`），更致命的是——**反序列化时 Jackson 无法仅凭 JSON 还原多态类型**，要么抛 `InvalidTypeIdException`，要么把所有消息反序列化成基类导致 `getText()` 返回 null。这是 Spring AI + Redis 记忆方案的经典"多态黑洞"。
 
@@ -84,8 +88,8 @@ return dtos.stream().map(dto -> {
 ```
 
 **收益**：
-- **彻底绕开多态反序列化陷阱**，Redis 中存储的 JSON 体积缩小 60% 以上（无框架噪音字段）；
-- **框架升级零风险**：即使 Spring AI 后续修改 `Message` 内部结构，DTO 层作为防腐层（Anti-Corruption Layer）完全不受影响；
+- **有效绕开多态反序列化陷阱**，Redis 中存储的 JSON 体积缩小 60% 以上（无框架噪音字段）；
+- **框架升级风险可控**：即使 Spring AI 后续修改 `Message` 内部结构，DTO 层作为防腐层（Anti-Corruption Layer）可将影响面控制在转换逻辑内；
 - **可读性极强**：`redis-cli` 直接 `GET` 即可看到干净的 `[{"role":"user","content":"xxx"}]`，运维排查友好。
 
 ---
@@ -106,6 +110,7 @@ rewrite 所需的历史上下文**不走框架记忆**，而是通过 `buildRece
 ```java
 private String buildRecentHistory(String sessionId, int rounds) {
     List<Message> history = aiChatMemory.get(sessionId);   // get 只读，不触发写回
+    if (history == null || history.isEmpty()) return "（无）";
     int from = Math.max(0, history.size() - rounds * 2);
     return history.subList(from, history.size()).stream()
         .map(m -> (m.getMessageType() == MessageType.USER ? "用户" : "助手") + "：" + m.getText())
@@ -114,7 +119,7 @@ private String buildRecentHistory(String sessionId, int rounds) {
 ```
 
 **收益**：
-- **主对话记忆零污染**：rewrite 的 system / user / assistant 消息全部不落库，主对话上下文只含真实问答；
+- **主对话记忆无 rewrite 污染**：rewrite 的 system / user / assistant 消息全部不落库，主对话上下文只含真实问答；
 - **职责单一**：`rewriteChatClient` 是无状态工具人，`memoryChatClient` 只管主对话，符合单一职责原则；
 - **可观测性提升**：日志中可清晰区分"重写请求"与"主对话请求"，排查上下文污染问题成本骤降。
 
@@ -150,7 +155,7 @@ return new RewriteResult(originalQuestion, List.of("all"), true, 3);
 ```
 
 **收益**：
-- **链路永不崩溃**：即使大模型输出完全乱码，L3 兜底仍能返回原问题走全库检索，用户体验不中断；
+- **降级后链路不中断**：即使大模型输出完全乱码，L3 兜底仍能返回原问题走全库检索，用户体验不中断；
 - **可观测**：`parseLevel` 与 `fallback` 字段直接打印日志，可统计大模型 JSON 合规率，反向优化 Prompt；
 - **安全校验前置**：`all` 不与其他标签混用的约束在 L1/L2 都强制执行，避免检索路由逻辑被非法意图击穿。
 
@@ -177,7 +182,7 @@ for (int i = 1; i < sections.length; i++) {
 | :---: | :--- | :--- |
 | 0 或 3（全命中） | 三库均分 | `2:2:2`（总 topK=6） |
 | 1（单意图） | 命中库拿 4，其余各 1 | heroes 命中 → `4:1:1` |
-| 2（双意图） | 命中库平分 5，未命中拿 1 | heroes+stories → `3:1:2` |
+| 2（双意图） | 命中库分 5（2+3，余数按 sites→heroes→stories 优先级分配），未命中拿 1 | heroes+stories → `3:1:2` |
 
 ```java
 if (hitCount == 0 || hitCount == 3) {
@@ -190,7 +195,7 @@ if (hitCount == 0 || hitCount == 3) {
     ...
 } else if (hitCount == 2) {
     int remainderTopk = totalTopK - 1;    // 未命中库保底 1
-    int arg = remainderTopk / 2;          // 命中库平分 5
+    int arg = remainderTopk / 2;          // 命中库分 5（一个拿2，一个拿3）
     ...
 }
 ```
@@ -206,7 +211,7 @@ if (hitCount == 0 || hitCount == 3) {
 
 ---
 
-### 亮点五 · 高可用流式与防幻觉拦截：绝不瞎编的铁律
+### 亮点五 · 高可用流式与防幻觉约束：降低未收录实体的幻觉风险
 
 **痛点① —— 流式链路异常吞没**：SSE 流式输出中，如果大模型中途抛异常（网络抖动、限流、超时），异常会直接抛到 Servlet 容器，前端收到的是半截回复 + 连接重置，用户体验极差且无法感知错误。
 
@@ -219,32 +224,32 @@ return chatService.chat(...).onErrorResume(e -> {
 });
 ```
 
-**痛点② —— 红色历史题材的幻觉零容忍**：大模型在严肃历史题材中极易"编造"职务、时间、机构名称。红色文化内容一旦出错，性质远超普通问答场景。
+**痛点② —— 红色历史题材的幻觉风险**：大模型在严肃历史题材中极易"编造"职务、时间、机构名称。红色文化内容一旦出错，性质远超普通问答场景，需通过工程手段压缩幻觉空间。
 
 **方案② —— 三层防幻觉拦截**：
 
 | 层级 | 机制 | 实现位置 |
 | :---: | :--- | :--- |
 | **检索层** | 相似度阈值过滤（`SIMILARITY_THRESHOLD = 0.48`），低于阈值的文档直接丢弃，空结果返回空串触发兜底话术 | `RagSearchServiceImpl` |
-| **Prompt 层** | System Prompt 强约束"只能用参考资料作答、核心主体未提及必须拒答、职务时间一字不差"，并对"知识库未收入"做特殊兜底 | `rag_default.st` / `rag_expert.st` |
+| **Prompt 层** | System Prompt 约束"只能用参考资料作答、核心主体未提及建议拒答、职务时间以史料为准"，并对"知识库未收入"做特殊兜底 | `rag_default.st` / `rag_expert.st` |
 | **输出层** | 检索空结果时注入固定文案"此问题本地知识库未收入"，Prompt 中要求模型原样输出拒答话术 | `ChatServiceImpl` |
 
 **痛点③ —— 图像识别幻觉**：视觉模型对模糊老照片可能胡乱猜测人物身份。
 
-**方案③ —— 实体拦截铁律**：`VisionServiceImpl` 返回识别结果后，在 `ChatServiceImpl` 中检测是否包含"未知/未识别/失败"，若是则**直接抛 `BizException`**，不走后续大模型与检索链路，从源头阻止错误实体进入上下文：
+**方案③ —— 实体拦截机制**：`VisionServiceImpl` 返回识别结果后，在 `ChatServiceImpl` 中检测是否包含"未知/未识别/失败"，若是则**直接抛 `BizException`**，不走后续大模型与检索链路，从源头阻止错误实体进入上下文：
 
 ```java
 if (imageEntity.contains("未知") || imageEntity.contains("未识别") || imageEntity.contains("失败")) {
-    throw new BizException("同志，我未能看清图片中的核心主体，请换一张清晰的照片。");
+    throw new BizException("同志，我未能看清图片中的核心主体，请换一张清晰的照片，或直接输入名称告诉我哦。");
 }
 ```
 
 **收益**：
-- **流式链路永不崩溃**：`onErrorResume` 确保任何异常都转化为友好话术，前端永远收到完整流；
-- **史实零编造**：检索阈值 + Prompt 红线 + 空结果兜底三重防线，模型在无史料时必须拒答，绝不东拼西凑；
-- **错误实体零注入**：视觉识别失败时硬拦截，避免"张冠李戴"的错误主体污染后续 RAG 检索与生成。
+- **流式链路稳定性提升**：`onErrorResume` 确保异常转化为友好话术，前端可收到完整流；
+- **幻觉风险显著降低**：通过物理隔离（0.48 阈值）与 Prompt 约束，极大降低了未收录实体的幻觉风险，保障了严肃历史场景下的回答边界；
+- **错误实体拦截**：视觉识别失败时硬拦截，避免"张冠李戴"的错误主体进入后续 RAG 检索与生成。
 
-> 🛡️ **防幻觉拒答 + RAG 精准溯源 + 官方原文查证** 👉 [查看前端交互与多模态展示](docs/ui/ui.md)
+> 🛡️ **防幻觉拒答 + 文本出处展示 + 相似度分数后端可观测** 👉 [查看前端交互与多模态展示](docs/ui/ui.md)
 
 ---
 
@@ -285,11 +290,11 @@ if (imageEntity.contains("未知") || imageEntity.contains("未识别") || image
 
 **收益**：**业务异常即业务语义**——`throw new BizException("图片未识别")` 即可让前端弹红字，无需在 Controller 写任何 try-catch；500 兜底永远不把堆栈暴露给用户。
 
-### 细节三 · SSE `doOnComplete` 异步落库：流式与持久化的解耦
+### 细节三 · SSE `doOnComplete` 回调落库：流式与持久化的解耦
 
-**痛点**：流式输出时，AI 回复是逐 token 到达的，如果每来一个 token 就写库，IO 压力巨大；如果流结束后同步写库，又会阻塞流的关闭。
+**痛点**：流式输出时，AI 回复是逐 token 到达的，如果每来一个 token 就写库，IO 压力巨大；如果在流输出过程中同步写库，又会阻塞 token 的下发。
 
-**方案**：用 `StringBuilder fullAiResponse` 在流的 `map` 阶段累积完整回复，在 `doOnComplete` 回调中一次性写入 MySQL，且**全程 try-catch 吞掉异常**，确保落库失败不影响流本身：
+**方案**：用 `StringBuilder fullAiResponse` 在流的 `map` 阶段累积完整回复，利用 Reactor 的 `doOnComplete` 回调机制，在流式响应结束后统一触发记录落库，避免了流输出过程中的阻塞；且**全程 try-catch 吞掉异常**，确保落库失败不影响流本身：
 
 ```java
 return memoryChatClient.prompt()...stream().content()
@@ -297,8 +302,11 @@ return memoryChatClient.prompt()...stream().content()
     .doOnComplete(() -> {
         try {
             ChatHistory chatHistory = new ChatHistory();
+            chatHistory.setUserId(currentUserId);
+            chatHistory.setSessionId(finalSessionId);
             chatHistory.setUserMessage(finalQuestion);
             chatHistory.setAiMessage(fullAiResponse.toString().trim());
+            chatHistory.setCreateTime(LocalDateTime.now());
             chatHistoryMapper.insert(chatHistory);
         } catch (Exception e) {
             System.err.println("聊天记录存入数据库失败：" + e.getMessage());
@@ -306,7 +314,7 @@ return memoryChatClient.prompt()...stream().content()
     });
 ```
 
-**收益**：**落库与流式完全解耦**——写库再慢也不影响用户看到流式输出；写库失败不抛异常到流，用户无感知；`doOnComplete` 在 Reactor 线程执行，不占用请求线程。
+**收益**：**流输出过程与落库解耦**——流输出期间不做写库操作，用户可及时看到流式回复；写库失败不抛异常到流，用户无感知。需要说明的是，`doOnComplete` 是在 Reactor 完成线程中同步执行的回调，并非独立线程池异步执行，因此若落库耗时过长会占用该完成线程；当前方案以"流结束后统一落库"换取流输出过程的零阻塞，适用于对落库实时性要求不高的场景。
 
 ### 细节四 · Stream API 链式去重：检索结果的精确投喂
 
@@ -372,7 +380,7 @@ resultList.sort((a, b) -> timeB.compareTo(timeA));
 | 视觉识别 | 阿里千问 `Qwen3-VL-Plus` | 老照片/遗址主体识别 |
 | 向量嵌入 | 智谱 `embedding-3` | 中文史料向量化 |
 | 向量存储 | Spring AI `SimpleVectorStore` | 本地 JSON 快照持久化 |
-| 流式传输 | Spring WebFlux `Flux` + SSE | 打字机流式输出 |
+| 流式传输 | Spring MVC + Reactor `Flux` + SSE | 打字机流式输出 |
 | 持久化 | MySQL 8 + MyBatis-Plus 3.5.7 | 用户/聊天记录 |
 | 缓存记忆 | Redis + Lettuce 连接池 | 多轮对话记忆 |
 | 鉴权 | Sa-Token 1.38.0 | 登录态与接口拦截 |
@@ -396,8 +404,8 @@ resultList.sort((a, b) -> timeB.compareTo(timeA));
 ```sql
 CREATE DATABASE redpic DEFAULT CHARACTER SET utf8mb4;
 
-CREATE TABLE sys_user (
-    user_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE redpic_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(64) NOT NULL UNIQUE,
     password VARCHAR(128) NOT NULL,
     create_time DATETIME
@@ -453,7 +461,7 @@ mvn spring-boot:run
 
 ### 5. 知识库导入
 
-将红色史料文件命名为包含 `generals` / `sites` / `stories` 的文本文件，调用接口导入：
+将红色史料文件命名为包含 `general` / `sites` / `stories` 的文本文件，调用接口导入：
 
 ```bash
 curl -X POST http://localhost:8080/api/knowledge/upload \
@@ -470,7 +478,8 @@ redpic/
 │   ├── controller/
 │   │   ├── ChatController.java        # 大一统流式接口 + onErrorResume 兜底
 │   │   ├── AuthController.java        # 登录/注册/改密
-│   │   └── KnowledgeController.java   # 知识库导入/原文读取
+│   │   ├── KnowledgeController.java   # 知识库导入/原文读取
+│   │   └── VisionController.java      # 独立视觉识图接口
 │   ├── service/impl/
 │   │   ├── ChatServiceImpl.java       # 核心编排：识图→重写→RAG→流式生成→落库
 │   │   ├── RagSearchServiceImpl.java  # 三路 VectorStore 动态配额检索
@@ -491,11 +500,27 @@ redpic/
 │       ├── GlobalExceptionHandler.java    # 三层异常拦截
 │       └── BizException.java              # 业务异常
 ├── src/main/resources/
-│   ├── prompts/                     # 外置 Prompt 模板（default/expert/rag_*/rewrite/vision）
+│   ├── prompts/                     # 外置 Prompt 模板（default/expert/rag_*/rewrite/chat-redpic-image）
 │   ├── application-example.yml      # 配置模板
 │   └── application.yml              # 实际配置
-└── vector_heroes/sites/stories.json # 本地向量库快照
+└── vector_heroes.json / vector_sites.json / vector_stories.json  # 本地向量库快照
 ```
+
+---
+
+## 🛣️ 未来演进方向
+
+当前项目以"工程可用"为首要目标，以下方向按优先级排列，供后续迭代参考：
+
+| 方向 | 现状 | 演进目标 | 关键改动 |
+| :---: | :--- | :--- | :--- |
+| **落库真正异步化** | `doOnComplete` 在 Reactor 完成线程中同步执行落库 | 落库与请求线程完全解耦 | 引入 `Schedulers.boundedElastic()` 或消息队列（Redis Stream / RabbitMQ），将 `chatHistoryMapper.insert` 移至独立线程池消费 |
+| **向量库生产化** | Spring AI `SimpleVectorStore`（内存 + JSON 快照） | 支持大规模史料与持久化检索 | 迁移至 Milvus / pgvector / Elasticsearch，支持 HNSW 索引与增量更新 |
+| **相似度分数前端透传** | 分数仅在后端控制台日志输出 | 前端可选展示置信度 | 在 `/api/v1/chat/unified` 响应中增加 `sources` 字段（含文档片段与 score），由前端按场景决定是否展示 |
+| **多模态直检** | 视觉模型提取实体后走文本 RAG（提纯接入） | 图像直接向量化检索 | 引入 CLIP 系列多模态 Embedding，建立图像向量库，实现"以图搜图" + 图文混合检索 |
+| **防幻觉量化评测** | 依赖人工判断拒答效果 | 可度量的幻觉率指标 | 构建问答评测集（含已知实体 / 未收录实体 / 边界问题），统计拒答率、编造率、引用命中率，回归阈值与 Prompt 调整 |
+| **可观测性增强** | 日志 + 控制台打印 | 指标 + 链路追踪 | 接入 Micrometer + Prometheus，暴露 `rag.query.count`、`rag.parse.level`、`llm.latency` 等指标；集成 OpenTelemetry 做全链路追踪 |
+| **Prompt 版本管理** | Prompt 模板外置但无版本 | Prompt 可灰度、可回滚 | 引入 Prompt 版本号与 A/B 开关，记录每次对话的 Prompt 版本，支持效果对比与快速回滚 |
 
 ---
 
@@ -506,7 +531,7 @@ redpic/
 | **高可用优先** | 三级 JSON 降级、onErrorResume 兜底、空结果拒答、视觉实体硬拦截 |
 | **解耦至上** | @Qualifier 工厂隔离三模型、rewrite 零记忆、RagSearch 纯工具化 |
 | **上下文纯净** | DTO 防腐层绕开多态序列化、手动拼历史避免记忆毒化 |
-| **对抗幻觉** | 检索阈值 + Prompt 红线 + 空结果兜底，史料未命中绝不编造 |
-| **可观测** | parseLevel / fallback 字段、检索路由日志、去重前后文档数打印 |
+| **抑制幻觉** | 检索阈值 + Prompt 约束 + 空结果兜底，史料未命中时引导拒答以降低幻觉风险 |
+| **可观测** | parseLevel / fallback 字段、检索路由日志、去重后文档数与每条 score 打印 |
 
 > **这个项目证明了：在大模型应用工程化中，真正的难点从来不是"调通 API"，而是在不可靠的模型输出之上，用工程手段构建出可靠的业务系统。**

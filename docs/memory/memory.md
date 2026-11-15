@@ -17,7 +17,7 @@
 
 ## 核心问题：为什么 rewrite 不能用带记忆的 ChatClient？
 
-**痛点**：Query Rewrite 的本质是让大模型"看懂上下文后把代词补全"。但如果直接复用带 `MessageChatMemoryAdvisor` 的 `memoryChatClient`，会产生两个致命问题：
+**痛点**：Query Rewrite 的本质是让大模型"看懂上下文后把代词补全"。但如果直接复用带 `MessageChatMemoryAdvisor` 的 `memoryChatClient`，会产生两个问题：
 
 1. **rewrite 的"重写指令"会被写入记忆**，污染主对话上下文
 2. **重写后的 JSON 结果也会作为 `assistant` 消息存进 Redis**，下次检索时被当作历史回答喂回模型，造成上下文毒化
@@ -34,6 +34,7 @@ rewrite 所需的历史上下文**不走框架记忆**，而是通过 `buildRece
 ```java
 private String buildRecentHistory(String sessionId, int rounds) {
     List<Message> history = aiChatMemory.get(sessionId);   // get 只读，不触发写回
+    if (history == null || history.isEmpty()) return "（无）";
     int from = Math.max(0, history.size() - rounds * 2);
     return history.subList(from, history.size()).stream()
         .map(m -> (m.getMessageType() == MessageType.USER ? "用户" : "助手") + "：" + m.getText())
@@ -96,9 +97,9 @@ return dtos.stream().map(dto -> {
 ```
 
 **收益**：
-- 彻底绕开多态反序列化陷阱
+- 有效绕开多态反序列化陷阱
 - Redis 存储 JSON 体积缩小 60% 以上
-- 框架升级零风险，DTO 作为防腐层完全隔离框架内部结构
+- 框架升级风险可控，DTO 作为防腐层隔离框架内部结构
 
 ---
 
@@ -106,7 +107,7 @@ return dtos.stream().map(dto -> {
 
 | 维度 | 效果 |
 | :---: | :--- |
-| 主对话记忆纯净度 | 零污染 —— rewrite 消息全部不落库 |
+| 主对话记忆纯净度 | rewrite 消息不落库，主对话上下文仅含真实问答 |
 | 会话隔离 | 每个 `sessionId` 独立 Redis Key，互不干扰 |
 | 上下文长度控制 | `maxMessages=10` 滑动窗口，防止 token 溢出 |
 | 可观测性 | 日志清晰区分"重写请求"与"主对话请求" |

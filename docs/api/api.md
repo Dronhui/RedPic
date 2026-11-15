@@ -45,7 +45,7 @@
 2. `AuthServiceImpl` 从数据库取出 BCrypt 哈希值
 3. `BCrypt.checkpw(plainPassword, hashedPassword)` 校验
 4. 校验通过 → `StpUtil.login(userId)` → `StpUtil.getTokenValue()` 返回 Token
-5. 前端将 Token 存入 localStorage，后续请求放入 `Authorization` 头
+5. 前端将 Token 存入 localStorage，后续请求放入 `satoken` 请求头
 
 ---
 

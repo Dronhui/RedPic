@@ -124,7 +124,7 @@ public class ChatServiceImpl implements ChatService {
             StringBuilder fullAiResponse = new StringBuilder();
 
              return memoryChatClient.prompt().system(finalSystemPrompt).
-                    user(finalQuestion).advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
+                    user(finalQuestionRewrite).advisors(a->a.param(ChatMemory.CONVERSATION_ID,finalSessionId))
                     .stream().content().map(a->{
                         fullAiResponse.append(a);
                         return a.replace("\r","")
